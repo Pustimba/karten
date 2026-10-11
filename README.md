@@ -33,7 +33,13 @@ Beim ersten Doppelklick auf `Start-Mac.command` können zwei Meldungen erscheine
 * **„Apple konnte nicht überprüfen, ob … frei von Schadsoftware ist“:** Die Datei stammt aus dem Internet und ist nicht von Apple signiert. Ab macOS 15 (Sequoia) gibt es in diesem Fenster keinen „Öffnen“-Knopf mehr.
 * **„… konnte nicht ausgeführt werden, da du nicht über die notwendigen Zugriffsrechte verfügst“:** Beim Entpacken ging das Recht „ausführbar“ verloren.
 
-**Am einfachsten für beide Fälle:** Terminal öffnen (Cmd + Leertaste, „Terminal“), `bash ` mit Leerzeichen eintippen, `Start-Mac.command` aus dem Finder ins Terminalfenster ziehen und Enter drücken.
+**Am einfachsten für beide Fälle:** Terminal öffnen (Cmd + Leertaste, „Terminal“), `bash ` mit Leerzeichen eintippen, `Start-Mac.command` aus dem Finder ins Terminalfenster ziehen und **erst dann** Enter drücken. `bash` und der Pfad müssen in einer Zeile stehen:
+
+```bash
+bash /Users/DEINNAME/Downloads/karten-main/Start-Mac.command
+```
+
+Die Startdatei muss im entpackten Projektordner liegen (neben `pyproject.toml` und dem Ordner `zugbindung`); eine einzeln heruntergeladene Startdatei funktioniert nicht. Wer schon im Projektordner ist, tippt einfach `bash Start-Mac.command`.
 
 Wer danach dauerhaft per Doppelklick starten möchte, erledigt einmalig beides im Terminal (jeweils den Ordner bzw. die Datei ins Fenster ziehen statt den Pfad zu tippen):
 
