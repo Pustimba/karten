@@ -15,7 +15,7 @@ Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wi
 
    | System | Datei | Beim ersten Start |
    |---|---|---|
-   | **macOS** | `Start-Mac.command` | macOS blockiert die Datei beim ersten Mal („Apple konnte nicht überprüfen …“). Dann auf **Fertig** klicken (nicht in den Papierkorb legen) und die Schritte unter [Startdatei auf dem Mac freigeben](#startdatei-auf-dem-mac-freigeben) befolgen. Nur einmal nötig. |
+   | **macOS** | `Start-Mac.command` | **Empfohlen:** Terminal öffnen, `bash ` (mit Leerzeichen) eintippen, `Start-Mac.command` aus dem Finder ins Fenster ziehen, Enter. Ein direkter Doppelklick wird beim ersten Mal oft blockiert („Apple konnte nicht überprüfen …“ oder „nicht über die notwendigen Zugriffsrechte“), siehe [Startdatei auf dem Mac freigeben](#startdatei-auf-dem-mac-freigeben). |
    | **Windows** | `Start-Windows.bat` | Zeigt Windows „Der Computer wurde durch Windows geschützt“: **Weitere Informationen → Trotzdem ausführen**. |
    | **Linux** | `start-linux.sh` | Im Dateimanager „Als Programm ausführen“ wählen, oder im Terminal `./start-linux.sh`. |
 
@@ -28,24 +28,30 @@ Das Fenster mit dem Text „Zugbindung läuft unter http://127.0.0.1:8765/“ mu
 
 ### Startdatei auf dem Mac freigeben
 
-Die Startdatei stammt aus dem Internet und ist nicht von Apple signiert. Deshalb blockiert macOS sie beim ersten Doppelklick mit der Meldung „„Start-Mac.command“ nicht geöffnet. Apple konnte nicht überprüfen, ob … frei von Schadsoftware ist“. Ab macOS 15 (Sequoia) gibt es in diesem Fenster keinen „Öffnen“-Knopf mehr. Zwei Wege:
+Beim ersten Doppelklick auf `Start-Mac.command` können zwei Meldungen erscheinen:
 
-**Weg A, über die Systemeinstellungen:**
+* **„Apple konnte nicht überprüfen, ob … frei von Schadsoftware ist“:** Die Datei stammt aus dem Internet und ist nicht von Apple signiert. Ab macOS 15 (Sequoia) gibt es in diesem Fenster keinen „Öffnen“-Knopf mehr.
+* **„… konnte nicht ausgeführt werden, da du nicht über die notwendigen Zugriffsrechte verfügst“:** Beim Entpacken ging das Recht „ausführbar“ verloren.
+
+**Am einfachsten für beide Fälle:** Terminal öffnen (Cmd + Leertaste, „Terminal“), `bash ` mit Leerzeichen eintippen, `Start-Mac.command` aus dem Finder ins Terminalfenster ziehen und Enter drücken.
+
+Wer danach dauerhaft per Doppelklick starten möchte, erledigt einmalig beides im Terminal (jeweils den Ordner bzw. die Datei ins Fenster ziehen statt den Pfad zu tippen):
+
+```bash
+chmod +x ~/Downloads/karten-main/Start-Mac.command
+xattr -dr com.apple.quarantine ~/Downloads/karten-main
+```
+
+Alternativ zur zweiten Zeile geht die Freigabe auch ohne Terminal:
+
+**Freigabe über die Systemeinstellungen:**
 
 1. Im Hinweisfenster auf **Fertig** klicken.
 2. **Systemeinstellungen** → **Datenschutz & Sicherheit** öffnen und ganz nach unten scrollen.
 3. Bei „„Start-Mac.command“ wurde blockiert …“ auf **Dennoch öffnen** klicken und mit Passwort oder Touch ID bestätigen.
 4. `Start-Mac.command` erneut doppelklicken und **Dennoch öffnen** wählen.
 
-**Weg B, mit einem Befehl:** Terminal öffnen, `bash ` (mit Leerzeichen) eintippen, `Start-Mac.command` aus dem Finder ins Terminalfenster ziehen und Enter drücken.
-
-Wer die Sperre für den ganzen Ordner auf einmal aufheben möchte (dann klappt künftig auch der Doppelklick ohne Nachfrage):
-
-```bash
-xattr -dr com.apple.quarantine ~/Downloads/karten-main
-```
-
-Den Pfad an den eigenen Ordner anpassen; am einfachsten den Ordner nach `xattr -dr com.apple.quarantine ` ins Terminal ziehen. Wer das Projekt per `git clone` holt, bekommt diese Sperre gar nicht erst.
+Wer das Projekt per `git clone` holt, bekommt keine der beiden Sperren.
 
 ### Die App im Überblick
 
