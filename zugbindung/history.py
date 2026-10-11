@@ -34,6 +34,7 @@ class History:
         self.last_day: date = hi
         self._stop_cache: dict = {}
         self._series_cache: dict = {}
+        self._stations: dict[str, str] | None = None
 
     def days(self, weekdays: set[int] | None = None) -> list[date]:
         """Historische Starttage für die Simulation. Der erste und letzte Tag
@@ -105,3 +106,24 @@ class History:
         out = {d: (int(dl or 0), bool(c)) for d, dl, c in rows}
         self._series_cache[key] = out
         return out
+
+    def stations(self) -> dict[str, str]:
+        """EVA -> Bahnhofsname (DB-Schreibweise), einmal geladen."""
+        if self._stations is None:
+            rows = self.con.execute(
+                "SELECT eva, any_value(station_name) FROM delays WHERE station_name IS NOT NULL GROUP BY eva"
+            ).fetchall()
+            self._stations = {eva: name for eva, name in rows}
+        return self._stations
+
+    def station_by_name(self, name: str) -> tuple[str, str] | None:
+        """Bahnhofsname (beliebige Schreibweise) -> (EVA, DB-Name), oder None."""
+        city = (re.findall(r"[^\W\d_]+", name.lower()) or [""])[0]
+        best = None
+        for eva, st in self.stations().items():
+            if not st.lower().startswith(city):
+                continue
+            sim = name_similarity(st, name)
+            if best is None or sim > best[0]:
+                best = (sim, eva, st)
+        return (best[1], best[2]) if best and best[0] >= 0.5 else None

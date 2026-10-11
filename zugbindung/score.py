@@ -43,6 +43,7 @@ class Result:
     legs: list[Leg]
     components: list[Component]
     navigator_buffer: int
+    matched: list = field(default_factory=list)   # je Zugfahrt (from_eva, to_eva), "" wenn unbekannt
     p_unabhaengig: float = 0.0
     tage_mit: int = 0
     tage: int = 0
@@ -80,6 +81,8 @@ class _TrainLeg:
         self.arr_off = (leg.arr.date() - start_day).days
         a = hist.find_stop(leg.num, leg.line, "arrival", leg.arr, leg.to_name, leg.to_eva)
         d = hist.find_stop(leg.num, leg.line, "departure", leg.dep, leg.from_name, leg.from_eva)
+        self.to_eva = a[1] if a else ""
+        self.from_eva = d[1] if d else ""
         self.arr = drop_planned_blocks(hist.series(a[0], a[1], "arrival", leg.arr)) if a else {}
         self.dep = drop_planned_blocks(hist.series(d[0], d[1], "departure", leg.dep)) if d else {}
 
@@ -137,7 +140,8 @@ def score(legs: list[Leg], hist: History, days: list[date], navigator_buffer: in
         ev.append(None if arr is None or arr[1] else arr[0] >= TARGET_DELAY)
     comps.append(Component(f">= {TARGET_DELAY} min am Ziel", ev))
 
-    res = Result(legs=legs, components=comps, navigator_buffer=navigator_buffer)
+    res = Result(legs=legs, components=comps, navigator_buffer=navigator_buffer,
+                 matched=[(t.from_eva, t.to_eva) for t in T])
     stay = 1.0
     for c in comps:
         if c.p is not None and c.n >= MIN_DAYS:

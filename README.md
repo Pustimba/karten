@@ -1,8 +1,41 @@
 # zugbindung
 
-Ein Kommandozeilen-Werkzeug, das Bahnverbindungen findet, bei denen die **Zugbindung eines Sparpreis-Tickets mit hoher Wahrscheinlichkeit entfällt**. Grundlage sind echte Verspätungsdaten der Deutschen Bahn aus den letzten Wochen.
+Ein Programm, das Bahnverbindungen findet, bei denen die **Zugbindung eines Sparpreis-Tickets mit hoher Wahrscheinlichkeit entfällt**. Grundlage sind echte Verspätungsdaten der Deutschen Bahn aus den letzten Wochen. Es läuft als **App im Browser** auf deinem eigenen Rechner, ein Terminal ist nicht nötig.
 
 Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wird für eine Verbindung gebucht, die viele Umstiege mit knappen Übergängen hat. Reißt diese Kette am Reisetag, entfällt die Zugbindung. Das Ticket gilt dann laut DB bis zu einem Jahr lang für eine Verbindung freier Wahl zum selben Ziel.
+
+![Die App: Suche Forst → Stolberg mit bewerteten Verbindungen](docs/screenshot_suche.png)
+
+---
+
+## Schnellstart: App per Doppelklick
+
+1. **Herunterladen:** Auf der GitHub-Seite dieses Projekts auf **„Code“ → „Download ZIP“** klicken und das ZIP entpacken (z. B. in `Dokumente/zugbindung`). Wer git kennt, kann auch `git clone https://github.com/Pustimba/karten.git` nutzen.
+2. **Starten** per Doppelklick:
+
+   | System | Datei | Beim ersten Start |
+   |---|---|---|
+   | **macOS** | `Start-Mac.command` | Erscheint „kann nicht geöffnet werden, da der Entwickler nicht verifiziert werden kann“: **Rechtsklick → Öffnen → Öffnen**. Nur beim ersten Mal nötig. |
+   | **Windows** | `Start-Windows.bat` | Zeigt Windows „Der Computer wurde durch Windows geschützt“: **Weitere Informationen → Trotzdem ausführen**. |
+   | **Linux** | `start-linux.sh` | Im Dateimanager „Als Programm ausführen“ wählen, oder im Terminal `./start-linux.sh`. |
+
+   Beim allerersten Start installiert die Datei automatisch [uv](https://docs.astral.sh/uv/) (ein kleines Werkzeug, das Python und die nötigen Pakete bereitstellt). Das dauert ein bis zwei Minuten. Danach öffnet sich die App im Browser unter `http://127.0.0.1:8765`.
+3. **Daten laden:** Beim ersten Mal zeigt die App „Jetzt Daten laden“. Klicken und warten (ca. 5,5 GB Download, 30 bis 60 Minuten, Fortschritt wird angezeigt). Danach etwa einmal pro Woche unter **Daten** auf „Daten aktualisieren“ klicken.
+4. **Suchen:** Start, Ziel und Reisetage eingeben, auf **Suchen** klicken.
+5. **Beenden:** oben rechts auf **Beenden** klicken, oder das schwarze Fenster schließen, das beim Start aufgegangen ist.
+
+Das Fenster mit dem Text „Zugbindung läuft unter http://127.0.0.1:8765/“ muss geöffnet bleiben, solange du die App nutzt. Die App ist nur auf deinem eigenen Rechner erreichbar.
+
+### Die App im Überblick
+
+| Bereich | Was du dort machst |
+|---|---|
+| **Suchen** | Start und Ziel eintippen (Vorschläge erscheinen beim Tippen), einen oder mehrere Reisetage hinzufügen, Zeitfenster und Ermäßigung wählen. Nach 3 bis 5 Minuten pro Tag erscheint die Rangliste. Jede Karte zeigt die Wahrscheinlichkeit, die Zugkette, die Hauptrisiken und einen Knopf **„Auf bahn.de suchen“**, der die bahn.de-Suche mit Start, Ziel, Datum, Uhrzeit und BahnCard vorbefüllt. Daneben stehen die **Zwischenhalte** zum Kopieren, mit denen bahn.de genau diese Kette anbietet. |
+| **Link prüfen** | Einen oder mehrere bahn.de-Links (über „Teilen“ auf bahn.de) einfügen. Die App bewertet die Verbindung mit den echten Zugnummern. |
+| **Daten** | Zeigt, bis wann Verspätungsdaten vorliegen, und aktualisiert sie per Klick. Ein Abbruch ist jederzeit möglich. |
+| **Hilfe** | Kurzanleitung und Erklärung der Zahlen. |
+
+Unter **Erweiterte Einstellungen** lassen sich Abfrageraster, kürzester erlaubter Umstieg, die Navigator-Schwelle und die Wochentage der Vergangenheit einstellen. Die Bedeutung der Zahlen steht in [Abschnitt 11](#11-so-liest-du-die-ergebnisse), die Strategie in [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026).
 
 ---
 
@@ -11,7 +44,7 @@ Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wi
 1. [Die Regeln der DB](#1-die-regeln-der-db)
 2. [Was das Tool macht](#2-was-das-tool-macht)
 3. [Voraussetzungen](#3-voraussetzungen)
-4. [Installation](#4-installation)
+4. [Installation für die Kommandozeile](#4-installation-für-die-kommandozeile)
 5. [Schritt 1: Verspätungsdatenbank bauen](#5-schritt-1-verspätungsdatenbank-bauen)
 6. [Schritt 2: Verbindungen suchen und bewerten](#6-schritt-2-verbindungen-suchen-und-bewerten)
 7. [Schritt 3: Preis auf bahn.de prüfen](#7-schritt-3-preis-auf-bahnde-prüfen)
@@ -25,6 +58,8 @@ Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wi
 15. [Fehlerbehebung](#15-fehlerbehebung)
 16. [Aufbau des Repos](#16-aufbau-des-repos)
 17. [Datenquellen und Lizenzen](#17-datenquellen-und-lizenzen)
+
+Die Abschnitte 4 bis 9 beschreiben die Kommandozeile. Alles davon geht auch in der App; die Erklärungen zu bahn.de, Buchung und Reisetag (Abschnitte 7 und 9) gelten für beide Wege.
 
 ---
 
@@ -77,10 +112,11 @@ Weil das Ticket danach ein Jahr flexibel ist, spielt das **Reisedatum der gebuch
                      Rangliste (.md, .json)
 ```
 
-Drei Befehle:
+Die App und die Kommandozeile nutzen denselben Kern. Befehle:
 
 | Befehl | Zweck | Dauer |
 |---|---|---|
+| `zugbindung` oder `zugbindung app` | startet die App im Browser (das machen auch die Startdateien) | sofort |
 | `zugbindung db-bauen` | lädt die DB-Echtzeitdaten der letzten 31 Tage und baut daraus eine Datenbank | einmalig ca. 30 bis 60 Minuten |
 | `zugbindung suche` | sucht Verbindungen für einen oder mehrere Tage und bewertet sie | ca. 3 bis 5 Minuten pro Tag |
 | `zugbindung pruefe` | bewertet eine konkrete Verbindung aus einem bahn.de-Link | wenige Sekunden |
@@ -91,16 +127,16 @@ Drei Befehle:
 
 * **Python 3.12 oder neuer**
 * **[uv](https://docs.astral.sh/uv/)** (Paketmanager für Python)
-* **git**
+* **git** (optional; ohne git lädt das Programm delay_bahn als ZIP von GitHub)
 * **ca. 10 GB freier Speicher** (Rohdaten ca. 5,5 GB, Zwischendateien und Datenbank ca. 3 GB)
 * **mindestens 8 GB RAM**; beim Parsen braucht jeder Prozess etwa 1,5 GB
 * Internetzugang zu `huggingface.co`, `api.transitous.org`, `github.com` und `www.bahn.de`
 
-Das Tool läuft auf macOS, Linux und Windows.
+Das Tool läuft auf macOS, Linux und Windows. Python und uv richten die Startdateien bei Bedarf selbst ein.
 
 ---
 
-## 4. Installation
+## 4. Installation für die Kommandozeile
 
 ### uv installieren (einmalig)
 
@@ -368,6 +404,9 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 
 | Problem | Lösung |
 |---|---|
+| App öffnet sich nicht im Browser | im Startfenster steht die Adresse, z. B. `http://127.0.0.1:8765/`; diese im Browser öffnen. Ist der Port belegt, nimmt die App automatisch den nächsten freien |
+| Startdatei unter macOS lässt sich nicht öffnen | Rechtsklick → Öffnen. Hilft das nicht: im Terminal `chmod +x Start-Mac.command` im Projektordner ausführen |
+| Startdatei schließt sich sofort (Windows) | `Start-Windows.bat` per Rechtsklick → „Bearbeiten“ prüfen, ob der Projektordner vollständig entpackt ist (aus dem ZIP heraus starten geht nicht) |
 | `Verspätungsdatenbank … fehlt` | zuerst `uv run zugbindung db-bauen`, oder mit `--db` den Pfad zu `delays.duckdb` angeben |
 | Falscher Start- oder Zielhalt | anders schreiben, z. B. `"Stolberg (Rheinl) Hbf"`, `"Hamm (Westf) Hbf"`, `"Frankfurt (Main) Hbf"`. Oder die Transitous-ID direkt angeben, z. B. `--von de-DELFI_de:12071:900445010`. IDs findest du unter `https://api.transitous.org/api/v1/geocode?text=Forst%20Bahnhof&type=STOP` |
 | `Kein Halt in 'cottbus' … gefunden` | wie oben: andere Schreibweise oder ID aus der ausgegebenen Liste verwenden |
@@ -384,9 +423,15 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 ```
 karten/
 ├── README.md                     diese Anleitung
+├── Start-Mac.command             Doppelklick-Start macOS
+├── Start-Windows.bat             Doppelklick-Start Windows
+├── start-linux.sh                Start Linux
 ├── pyproject.toml                Paketdefinition, Befehl "zugbindung"
 ├── zugbindung/
-│   ├── cli.py                    Kommandozeile (db-bauen, suche, pruefe)
+│   ├── web.py                    lokaler Webserver der App (nur Standardbibliothek)
+│   ├── static/index.html         Oberfläche der App
+│   ├── service.py                Suche und Prüfung, gemeinsam für App und Kommandozeile
+│   ├── cli.py                    Kommandozeile (app, db-bauen, suche, pruefe)
 │   ├── transitous.py             Verbindungen und Haltestellen von Transitous
 │   ├── bahnde.py                 bahn.de-Link (vbid) einlesen
 │   ├── history.py                Zugriff auf die Verspätungsdatenbank
@@ -397,8 +442,10 @@ karten/
 │   └── parallel_parse.py         paralleles Parsen der Rohdaten (läuft in delay_bahn)
 ├── patches/
 │   └── delay_bahn_fast_toggle.patch   optionaler Patch für delay_bahn
-└── beispiele/
-    └── rangliste_forst_stolberg_2026-10.md   Auswertung vom Oktober 2026
+├── beispiele/
+│   └── rangliste_forst_stolberg_2026-10.md   Auswertung vom Oktober 2026
+└── docs/
+    └── screenshot_suche.png      Bildschirmfoto für dieses README
 ```
 
 ---

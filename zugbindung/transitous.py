@@ -102,8 +102,38 @@ def itinerary_to_legs(it: dict) -> list[Leg]:
     return legs
 
 
+def _print_progress(msg: str) -> None:
+    print(f"  {msg}", file=sys.stderr, flush=True)
+
+
+def candidates(text: str, limit: int = 8) -> list[dict]:
+    """Haltestellen-Vorschläge für die Autovervollständigung: Halte im
+    gesuchten Ort zuerst, darunter Bahnhöfe vor Bushaltestellen."""
+    res = []
+    for q in dict.fromkeys([text, f"{text} Bahnhof"]):
+        res += [r for r in (_get("/v1/geocode", {"text": q, "type": "STOP"}) or [])
+                if r.get("type") == "STOP" and "flixbus" not in str(r.get("id", "")).lower()]
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    city = words[0] if words else ""
+
+    def rank(r):
+        n = r.get("name", "")
+        station = bool(re.search(r"bahnhof|hbf|\bbf\b", n, re.IGNORECASE)) and "bus" not in n.lower()
+        return (bool(re.match(rf"{re.escape(city)}\b", n.lower())), station,
+                str(r.get("id", "")).startswith("de-DELFI"), name_similarity(n, text))
+
+    out, seen = [], set()
+    for r in sorted(res, key=rank, reverse=True):
+        if r["name"] in seen:
+            continue
+        seen.add(r["name"])
+        out.append({"id": r["id"], "name": r["name"]})
+    return out[:limit]
+
+
 def collect(from_id: str, to_id: str, day: str, start: str, end: str, step_min: int,
-            modes: list[str], max_transfers: int = 12, per_query: int = 8) -> list[list[Leg]]:
+            modes: list[str], max_transfers: int = 12, per_query: int = 8,
+            progress=_print_progress) -> list[list[Leg]]:
     """Fragt im Raster von step_min Minuten zwischen start und end (Ortszeit)
     Verbindungen ab und gibt die eindeutigen als Leg-Listen zurück."""
     t = datetime.fromisoformat(f"{day}T{start}").replace(tzinfo=BERLIN)
@@ -125,6 +155,6 @@ def collect(from_id: str, to_id: str, day: str, start: str, end: str, step_min: 
                 key = tuple((l.name, l.dep) for l in legs if not l.walk)
                 seen.setdefault(key, legs)
             time.sleep(PAUSE)
-        print(f"  {day} {t:%H:%M}: {len(seen)} Verbindungen", file=sys.stderr, flush=True)
+        progress(f"{day} {t:%H:%M}: {len(seen)} Verbindungen")
         t += timedelta(minutes=step_min)
     return list(seen.values())

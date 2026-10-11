@@ -1,4 +1,4 @@
-"""Kommandozeile: zugbindung db-bauen | suche | pruefe"""
+"""Kommandozeile: zugbindung [app] | db-bauen | suche | pruefe"""
 import argparse
 import os
 import re
@@ -12,13 +12,6 @@ REPO = Path(__file__).resolve().parents[1]
 DEFAULT_DELAY_BAHN = Path(os.environ.get("DELAY_BAHN_DIR", REPO.parent / "delay_bahn"))
 DEFAULT_DB = Path(os.environ.get("ZUGBINDUNG_DB", DEFAULT_DELAY_BAHN / "data" / "delays.duckdb"))
 
-# Züge, die sich nicht mit einem DB-Sparpreis buchen lassen (FlixTrain, Nachtzüge
-# anderer Bahnen, ausländische Betreiber). Treffer im Namen oder Betreiber.
-EXCLUDE = re.compile(r"flix|\bFLX|nightjet|\bNJ\b|\bEN\b|\b\d+N\b|european sleeper|\bDRF\b|"
-                     r"\bRDC\b|\bIntercity\b|\bSprinter\b|\bStoptrein\b|\bThalys\b|Eurostar",
-                     re.IGNORECASE)
-
-WEEKDAYS = {"mo": 0, "di": 1, "mi": 2, "do": 3, "fr": 4, "sa": 5, "so": 6}
 
 
 def _history(args):
@@ -32,28 +25,60 @@ def _history(args):
     return h
 
 
-def _days(h, args, travel_day: date | None = None):
-    wd = None
-    if args.wochentage:
-        wd = {WEEKDAYS[w.strip().lower()[:2]] for w in args.wochentage.split(",")}
-    elif args.gleicher_wochentag and travel_day:
-        wd = {travel_day.weekday()}
-    days = h.days(wd)
-    if len(days) < 4:
-        print(f"Achtung: nur {len(days)} historische Tage passen zum Filter.", file=sys.stderr)
-    return days
-
-
 # ---------------------------------------------------------------- db-bauen
+def _unzip_github(repo: str, ref: str, dest: Path) -> None:
+    """Lädt ein GitHub-Repo als ZIP und entpackt es ohne den obersten Ordner nach dest."""
+    import io
+    import urllib.request
+    import zipfile
+    url = f"https://codeload.github.com/{repo}/zip/{ref}"
+    print(f"Lade {repo} ({ref.rsplit('/', 1)[-1][:12]}) als ZIP ...")
+    with urllib.request.urlopen(url, timeout=300) as r:
+        zf = zipfile.ZipFile(io.BytesIO(r.read()))
+    for info in zf.infolist():
+        rel = info.filename.split("/", 1)[1] if "/" in info.filename else ""
+        if not rel:
+            continue
+        target = dest / rel
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(zf.read(info))
+
+
+def _fetch_delay_bahn_without_git(db_dir: Path) -> None:
+    """Ausweg für Rechner ohne git: delay_bahn und das Submodul als ZIP holen."""
+    import json
+    import urllib.request
+    _unzip_github("sha2nkt/delay_bahn", "refs/heads/main", db_dir)
+    ref = "refs/heads/main"
+    try:   # Stand des Submoduls, den delay_bahn erwartet
+        req = urllib.request.Request("https://api.github.com/repos/sha2nkt/delay_bahn/contents/deutsche-bahn-data",
+                                     headers={"User-Agent": "zugbindung-tool"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            ref = json.load(r).get("sha") or ref
+    except Exception:
+        pass
+    _unzip_github("piebro/deutsche-bahn-data", ref, db_dir / "deutsche-bahn-data")
+
+
 def cmd_db_bauen(args):
     db_dir = Path(args.delay_bahn)
     # delay_bahn hat eine eigene Umgebung; die dieses Tools darf nicht durchsickern
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    if not db_dir.exists():
+    import shutil
+    has_git = shutil.which("git") is not None
+    if not has_git and not (db_dir / "pyproject.toml").exists():
+        print(f"git ist nicht installiert, lade delay_bahn nach {db_dir} ...")
+        _fetch_delay_bahn_without_git(db_dir)
+    elif not has_git:
+        pass   # ZIP-Stand von früher weiterverwenden
+    elif not db_dir.exists():
         print(f"Klone delay_bahn nach {db_dir} ...")
         subprocess.run(["git", "clone", "--recurse-submodules", "--shallow-submodules", "--depth", "1",
                         "https://github.com/sha2nkt/delay_bahn.git", str(db_dir)], check=True, env=env)
-    else:
+    elif (db_dir / ".git").exists():
         subprocess.run(["git", "submodule", "update", "--init", "--depth", "1"], cwd=db_dir, check=True, env=env)
     subprocess.run(["uv", "sync"], cwd=db_dir, check=True, env=env)
     end = args.bis or (datetime.now(ZoneInfo("Europe/Berlin")).date() - timedelta(days=1)).isoformat()
@@ -71,40 +96,23 @@ def cmd_db_bauen(args):
 
 # ---------------------------------------------------------------- suche
 def cmd_suche(args):
-    from . import report, transitous
-    from .score import min_transfer, score
+    from . import report, service
 
     h = _history(args)
-    from_id, from_name = transitous.find_stop(args.von)
-    to_id, to_name = transitous.find_stop(args.nach)
-    print(f"Suche {from_name} → {to_name}", file=sys.stderr)
-    modes = [m.strip() for m in args.modi.split(",")]
+    p = service.SearchParams(
+        von=args.von, nach=args.nach, daten=args.datum, ab=args.ab, bis=args.bis, raster=args.raster,
+        modi=[m.strip() for m in args.modi.split(",")], max_umstiege=args.max_umstiege,
+        min_umstieg=args.min_umstieg, alle_betreiber=args.alle_betreiber,
+        navigator_puffer=args.navigator_puffer, wochentage=args.wochentage or "",
+        gleicher_wochentag=args.gleicher_wochentag)
+    res = service.search(h, p)
+    rows = res["pairs"]
 
-    rows = []
-    for day in args.datum:
-        travel_day = date.fromisoformat(day)
-        days = _days(h, args, travel_day)
-        conns = transitous.collect(from_id, to_id, day, args.ab, args.bis, args.raster, modes,
-                                   max_transfers=args.max_umstiege)
-        for legs in conns:
-            trains = [l for l in legs if not l.walk]
-            if not trains:
-                continue
-            if not args.alle_betreiber and any(EXCLUDE.search(f"{l.name} {l.operator}") for l in trains):
-                continue
-            mt = min_transfer(legs)
-            if mt is not None and mt < args.min_umstieg:
-                continue
-            nav = score(legs, h, days, navigator_buffer=args.navigator_puffer)
-            strict = score(legs, h, days, navigator_buffer=0)
-            rows.append((nav, strict))
-
-    rows.sort(key=lambda r: (-r[0].p_unabhaengig, -r[1].p_unabhaengig))
     out = Path(args.ausgabe)
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    slug = re.sub(r"\W+", "_", f"{from_name}_{to_name}").strip("_")
-    header = (f"# Rangliste {from_name} → {to_name}\n\n"
+    slug = re.sub(r"\W+", "_", f"{res['von']}_{res['nach']}").strip("_")
+    header = (f"# Rangliste {res['von']} → {res['nach']}\n\n"
               f"Reisetage: {', '.join(args.datum)}. Verspätungsdaten {h.first_day:%d.%m.%Y} bis "
               f"{h.last_day:%d.%m.%Y}. Navigator-Puffer {args.navigator_puffer} min, "
               f"Mindestumstieg {args.min_umstieg} min. Erstellt {datetime.now():%d.%m.%Y %H:%M}.")
@@ -113,34 +121,37 @@ def cmd_suche(args):
     (out / f"rangliste_{slug}_{stamp}.json").write_text(report.to_json(rows), encoding="utf-8")
 
     print(f"\n{len(rows)} Verbindungen bewertet. Die besten {min(args.top, len(rows))}:\n")
-    for i, (nav, strict) in enumerate(rows[:args.top], 1):
+    for i, ((nav, strict), d) in enumerate(zip(rows[:args.top], res["ergebnisse"]), 1):
         print(report.detail(strict, nav, title=f"#{i}"))
+        if d["zwischenhalte"]:
+            print("Auf bahn.de als Zwischenhalt: " + ", ".join(d["zwischenhalte"]))
+        print(f"bahn.de: {d['bahn_link']}")
         print()
     print(f"Tabelle: {md}")
 
 
 # ---------------------------------------------------------------- pruefe
 def cmd_pruefe(args):
-    from . import bahnde, report
-    from .score import score
+    from . import report, service
 
     h = _history(args)
-    for text in args.links:
-        vbid = bahnde.vbid_from(text)
-        data = bahnde.fetch(vbid)
-        legs = bahnde.recon_to_legs(data["hinfahrtRecon"])
-        days = _days(h, args, legs[0].dep.date())
-        nav = score(legs, h, days, navigator_buffer=args.navigator_puffer)
-        strict = score(legs, h, days, navigator_buffer=0)
-        print(report.detail(strict, nav, title=f"=== {data.get('startOrt')} → {data.get('zielOrt')} (vbid {vbid})"))
-        if data.get("rueckfahrtRecon"):
-            print("(Rückfahrt im Link wird ignoriert)")
+    for d in service.check(h, args.links, args.navigator_puffer, args.wochentage or "",
+                           args.gleicher_wochentag):
+        nav, strict = d["pairs"]
+        print(report.detail(strict, nav, title=f"=== {d['titel']} (vbid {d['vbid']})"))
         print()
+
+
+# ---------------------------------------------------------------- app
+def cmd_app(args):
+    from . import web
+    web.serve(db_path=Path(args.db), delay_bahn=Path(args.delay_bahn), port=args.port,
+              open_browser=not args.kein_browser)
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="zugbindung", description=__doc__)
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd")
 
     b = sub.add_parser("db-bauen", help="Verspätungsdatenbank der letzten Wochen bauen (einmalig, ca. 40 min)")
     b.add_argument("--delay-bahn", default=str(DEFAULT_DELAY_BAHN), help="Pfad für den delay_bahn-Checkout")
@@ -180,7 +191,15 @@ def main(argv=None):
     common(c)
     c.set_defaults(func=cmd_pruefe)
 
-    args = p.parse_args(argv)
+    a = sub.add_parser("app", help="Weboberfläche im Browser starten (Standard ohne Befehl)")
+    a.add_argument("--db", default=str(DEFAULT_DB), help="Pfad zu delays.duckdb")
+    a.add_argument("--delay-bahn", default=str(DEFAULT_DELAY_BAHN), help="Pfad zum delay_bahn-Checkout")
+    a.add_argument("--port", type=int, default=8765)
+    a.add_argument("--kein-browser", action="store_true", help="Browser nicht automatisch öffnen")
+    a.set_defaults(func=cmd_app)
+
+    argv = sys.argv[1:] if argv is None else argv
+    args = p.parse_args(argv or ["app"])
     args.func(args)
 
 
