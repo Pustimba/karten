@@ -1,0 +1,59 @@
+diff --git a/app/bahn_api.py b/app/bahn_api.py
+index 3773eea..8a6abd0 100644
+--- a/app/bahn_api.py
++++ b/app/bahn_api.py
+@@ -785,7 +785,7 @@ DEFAULT_TRAVELLERS = (("adult", 1, "none"),)
+ async def journeys(from_id: str, to_id: str, departure_iso: str, paging_ref: str | None = None,
+                    dticket: str = "off", travellers: tuple = DEFAULT_TRAVELLERS, transfer: int = 0,
+                    vias: tuple = (), products: tuple[str, ...] | None = None,
+-                   source: str = "search") -> tuple[dict, int]:
++                   source: str = "search", fast: bool = True) -> tuple[dict, int]:
+     """Returns (data, stale_age_seconds); age is 0 for a fresh answer, else how
+     old the served fallback is. from_id/to_id are full HAFAS location ids
+     (A=1@O=...@L=...@) from locations().
+@@ -842,7 +842,9 @@ async def journeys(from_id: str, to_id: str, departure_iso: str, paging_ref: str
+         # Routes without a slower covered alternative return the same list either way.
+         # A narrowed product set drops it too: whoever toggles modes explicitly
+         # wants to see those trains, and the pruning is what would hide them.
+-        "schnelleVerbindungen": dticket != "all" and products is None,
++        # fast=False is the search mask's unticked "Schnelle Verbindungen
++        # bevorzugen": slow regional chains that a faster option dominates stay in
++        "schnelleVerbindungen": fast and dticket != "all" and products is None,
+         "sitzplatzOnly": False,
+         "bikeCarriage": False,
+         "reservierungsKontingenteVorhanden": False,
+@@ -856,10 +858,10 @@ async def journeys(from_id: str, to_id: str, departure_iso: str, paging_ref: str
+             {"id": via_id, "aufenthaltsdauer": stay} for via_id, stay in vias]
+     if paging_ref:
+         body["pagingReference"] = paging_ref
+-    key = ("journeys", from_id, to_id, departure_iso, paging_ref, dticket, travellers, transfer, vias, products)
++    key = ("journeys", from_id, to_id, departure_iso, paging_ref, dticket, travellers, transfer, vias, products, fast)
+     # paged responses are offsets into a result list, so they only ever stand in
+     # for the same page (exact key), never for the route's primary answer
+-    route = (from_id, to_id, dticket, travellers, transfer, vias, products) if paging_ref is None else None
++    route = (from_id, to_id, dticket, travellers, transfer, vias, products, fast) if paging_ref is None else None
+ 
+     def keep(data: dict) -> None:
+         now = time.monotonic()
+diff --git a/app/main.py b/app/main.py
+index 28a45b4..d8e7790 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -835,6 +835,7 @@ async def journeys(
+     via2: str | None = Query(None),
+     via2_stay: int = Query(0, alias="via2Stay", ge=0, le=1439),
+     products: str | None = None,
++    fast: int = Query(1),
+ ):
+     if window not in (7, 15, 30):
+         raise HTTPException(422, "window must be 7, 15 or 30")
+@@ -878,7 +879,8 @@ async def journeys(
+         (via, stay) for via, stay in ((via1, via1_stay), (via2, via2_stay)) if via)
+     try:
+         data, stale_age = await bahn_api.journeys(
+-            from_id, to_id, departure, paging_ref, dticket, travellers, transfer, vias, product_filter)
++            from_id, to_id, departure, paging_ref, dticket, travellers, transfer, vias, product_filter,
++            fast=bool(fast))
+     except bahn_api.UpstreamError as e:
+         raise _upstream_http_error(e)
+     if stale_age:
