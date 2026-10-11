@@ -15,7 +15,7 @@ Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wi
 
    | System | Datei | Beim ersten Start |
    |---|---|---|
-   | **macOS** | `Start-Mac.command` | Erscheint „kann nicht geöffnet werden, da der Entwickler nicht verifiziert werden kann“: **Rechtsklick → Öffnen → Öffnen**. Nur beim ersten Mal nötig. |
+   | **macOS** | `Start-Mac.command` | macOS blockiert die Datei beim ersten Mal („Apple konnte nicht überprüfen …“). Dann auf **Fertig** klicken (nicht in den Papierkorb legen) und die Schritte unter [Startdatei auf dem Mac freigeben](#startdatei-auf-dem-mac-freigeben) befolgen. Nur einmal nötig. |
    | **Windows** | `Start-Windows.bat` | Zeigt Windows „Der Computer wurde durch Windows geschützt“: **Weitere Informationen → Trotzdem ausführen**. |
    | **Linux** | `start-linux.sh` | Im Dateimanager „Als Programm ausführen“ wählen, oder im Terminal `./start-linux.sh`. |
 
@@ -25,6 +25,27 @@ Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wi
 5. **Beenden:** oben rechts auf **Beenden** klicken, oder das schwarze Fenster schließen, das beim Start aufgegangen ist.
 
 Das Fenster mit dem Text „Zugbindung läuft unter http://127.0.0.1:8765/“ muss geöffnet bleiben, solange du die App nutzt. Die App ist nur auf deinem eigenen Rechner erreichbar.
+
+### Startdatei auf dem Mac freigeben
+
+Die Startdatei stammt aus dem Internet und ist nicht von Apple signiert. Deshalb blockiert macOS sie beim ersten Doppelklick mit der Meldung „„Start-Mac.command“ nicht geöffnet. Apple konnte nicht überprüfen, ob … frei von Schadsoftware ist“. Ab macOS 15 (Sequoia) gibt es in diesem Fenster keinen „Öffnen“-Knopf mehr. Zwei Wege:
+
+**Weg A, über die Systemeinstellungen:**
+
+1. Im Hinweisfenster auf **Fertig** klicken.
+2. **Systemeinstellungen** → **Datenschutz & Sicherheit** öffnen und ganz nach unten scrollen.
+3. Bei „„Start-Mac.command“ wurde blockiert …“ auf **Dennoch öffnen** klicken und mit Passwort oder Touch ID bestätigen.
+4. `Start-Mac.command` erneut doppelklicken und **Dennoch öffnen** wählen.
+
+**Weg B, mit einem Befehl:** Terminal öffnen, `bash ` (mit Leerzeichen) eintippen, `Start-Mac.command` aus dem Finder ins Terminalfenster ziehen und Enter drücken.
+
+Wer die Sperre für den ganzen Ordner auf einmal aufheben möchte (dann klappt künftig auch der Doppelklick ohne Nachfrage):
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/karten-main
+```
+
+Den Pfad an den eigenen Ordner anpassen; am einfachsten den Ordner nach `xattr -dr com.apple.quarantine ` ins Terminal ziehen. Wer das Projekt per `git clone` holt, bekommt diese Sperre gar nicht erst.
 
 ### Die App im Überblick
 
@@ -405,7 +426,8 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 | Problem | Lösung |
 |---|---|
 | App öffnet sich nicht im Browser | im Startfenster steht die Adresse, z. B. `http://127.0.0.1:8765/`; diese im Browser öffnen. Ist der Port belegt, nimmt die App automatisch den nächsten freien |
-| Startdatei unter macOS lässt sich nicht öffnen | Rechtsklick → Öffnen. Hilft das nicht: im Terminal `chmod +x Start-Mac.command` im Projektordner ausführen |
+| macOS: „Apple konnte nicht überprüfen, ob „Start-Mac.command“ frei von Schadsoftware ist“ | siehe [Startdatei auf dem Mac freigeben](#startdatei-auf-dem-mac-freigeben) |
+| macOS: „keine Berechtigung“ beim Start | im Terminal `chmod +x ` eintippen, `Start-Mac.command` ins Fenster ziehen, Enter |
 | Startdatei schließt sich sofort (Windows) | `Start-Windows.bat` per Rechtsklick → „Bearbeiten“ prüfen, ob der Projektordner vollständig entpackt ist (aus dem ZIP heraus starten geht nicht) |
 | `Verspätungsdatenbank … fehlt` | zuerst `uv run zugbindung db-bauen`, oder mit `--db` den Pfad zu `delays.duckdb` angeben |
 | Falscher Start- oder Zielhalt | anders schreiben, z. B. `"Stolberg (Rheinl) Hbf"`, `"Hamm (Westf) Hbf"`, `"Frankfurt (Main) Hbf"`. Oder die Transitous-ID direkt angeben, z. B. `--von de-DELFI_de:12071:900445010`. IDs findest du unter `https://api.transitous.org/api/v1/geocode?text=Forst%20Bahnhof&type=STOP` |
