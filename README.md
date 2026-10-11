@@ -2,7 +2,7 @@
 
 Ein Programm, das Bahnverbindungen findet, bei denen die **Zugbindung eines Sparpreis-Tickets mit hoher Wahrscheinlichkeit entfällt**. Grundlage sind echte Verspätungsdaten der Deutschen Bahn aus den letzten Wochen. Es läuft als **App im Browser** auf deinem eigenen Rechner, ein Terminal ist nicht nötig.
 
-Die Idee dahinter: Ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) wird für eine Verbindung gebucht, die viele Umstiege mit knappen Übergängen hat. Reißt diese Kette am Reisetag, entfällt die Zugbindung. Das Ticket gilt dann laut DB bis zu einem Jahr lang für eine Verbindung freier Wahl zum selben Ziel.
+Die Idee dahinter: Du willst z. B. von **Berlin nach Köln**. Gebucht wird ein günstiger Sparpreis (z. B. 13,49 € mit BahnCard 25) für eine **längere** Strecke, die Berlin → Köln einschließt, etwa Frankfurt (Oder) → Aachen, und zwar über eine Zugkette mit vielen knappen Umstiegen. Reißt diese Kette, entfällt die Zugbindung. Das Ticket gilt dann laut DB bis zu einem Jahr lang für eine Verbindung freier Wahl. Davon fährst du nur das Stück Berlin → Köln: späterer Einstieg, früherer Ausstieg und eine andere Route sind erlaubt, solange die Strecke plausibel ist.
 
 ![Die App: Suche Forst → Stolberg mit bewerteten Verbindungen](docs/screenshot_suche.png)
 
@@ -63,12 +63,17 @@ Wer das Projekt per `git clone` holt, bekommt keine der beiden Sperren.
 
 | Bereich | Was du dort machst |
 |---|---|
-| **Suchen** | Start und Ziel eintippen (Vorschläge erscheinen beim Tippen), einen oder mehrere Reisetage hinzufügen, Zeitfenster und Ermäßigung wählen. Nach 3 bis 5 Minuten pro Tag erscheint die Rangliste. Jede Karte zeigt die Wahrscheinlichkeit, die Zugkette, die Hauptrisiken und einen Knopf **„Auf bahn.de suchen“**, der die bahn.de-Suche mit Start, Ziel, Datum, Uhrzeit und BahnCard vorbefüllt. Daneben stehen die **Zwischenhalte** zum Kopieren, mit denen bahn.de genau diese Kette anbietet. |
+| **Suchen → Beste Reisetage** (Standard) | 1. Eintragen, wo du **wirklich** fahren willst, z. B. Berlin Hbf → Köln Hbf. 2. **„Passende Bahnhöfe vorschlagen“**: die App findet Bahnhöfe vor deinem Start (z. B. Frankfurt (Oder), Eberswalde) und hinter deinem Ziel (z. B. Aachen, Eschweiler), über die ein Ticket deine Strecke plausibel einschließt. Per Klick an- oder abwählen; eigene Bahnhöfe lassen sich ergänzen. 3. Zeitraum, Wochentage, Höchstpreis und Ermäßigung wählen, **Suchen**. Die App fragt **bahn.de** für jede Ticket-Variante (jede Kombination aus Start und Ziel, deine Wunschstrecke selbst immer eingeschlossen) und jeden Tag ab, behält Verbindungen bis zum Höchstpreis und sortiert sie nach der Wahrscheinlichkeit, dass die Zugbindung entfällt. Jede Karte zeigt Preis, Ticket-Strecke, Zugkette, Hauptrisiken, einen Knopf **„Auf bahn.de suchen“** (Suche vorbefüllt) und die **Zwischenhalte** zum Kopieren. Filter nach Tag und Ticket-Variante, Sortierung nach Wahrscheinlichkeit oder Preis, dazu eine Übersicht nach Reisetag. |
+| **Suchen → Zugketten erkunden** | Ohne bahn.de und ohne Preise: sucht über Transitous typische Zugketten für einzelne Reisetage. Nützlich, wenn bahn.de gerade blockt, oder um Muster zu finden. |
 | **Link prüfen** | Einen oder mehrere bahn.de-Links (über „Teilen“ auf bahn.de) einfügen. Die App bewertet die Verbindung mit den echten Zugnummern. |
 | **Daten** | Zeigt, bis wann Verspätungsdaten vorliegen, und aktualisiert sie per Klick. Ein Abbruch ist jederzeit möglich. |
 | **Hilfe** | Kurzanleitung und Erklärung der Zahlen. |
 
-Unter **Erweiterte Einstellungen** lassen sich Abfrageraster, kürzester erlaubter Umstieg, die Navigator-Schwelle und die Wochentage der Vergangenheit einstellen. Die Bedeutung der Zahlen steht in [Abschnitt 11](#11-so-liest-du-die-ergebnisse), die Strategie in [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026).
+**Dauer der Suche:** Die App fragt bahn.de höflich mit etwa 2 Sekunden Pause zwischen den Anfragen ab. Pro Ticket-Variante und Tag sind das meist 15 bis 30 Sekunden. Die geschätzte Dauer steht neben dem Suchknopf. Mehr als 400 Kombinationen aus Varianten und Tagen lehnt die App ab; dann weniger Bahnhöfe oder einen kürzeren Zeitraum wählen. Bewährt hat sich: zwei Starts, zwei Ziele, zwei Wochen.
+
+**Wie die Vorschläge entstehen:** Kandidaten sind Bahnhöfe mit direkten Regional- oder Fernzügen zu deinem Start (bzw. von deinem Ziel) laut Verspätungsdaten. Sie bleiben nur, wenn die Strecke plausibel ist: Der Weg Kandidat → Start → Ziel ist höchstens 30 % länger als die Luftlinie Kandidat → Ziel, und die Richtung weicht höchstens 75 Grad ab. Nahe beieinanderliegende Orte werden zusammengefasst, Bahnhöfe im selben Ort ausgelassen.
+
+Unter **Erweiterte Einstellungen** lassen sich die Navigator-Schwelle und (im Modus „Zugketten erkunden“) Abfrageraster, kürzester erlaubter Umstieg und die Wochentage der Vergangenheit einstellen. Die Bedeutung der Zahlen steht in [Abschnitt 11](#11-so-liest-du-die-ergebnisse), die Strategie in [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026).
 
 ---
 
@@ -116,6 +121,7 @@ Danach gilt laut derselben FAQ:
 * Eine spätere Verbindung ist bis zu **einem Jahr** nach dem ursprünglichen Reisedatum möglich.
 * Innerhalb Deutschlands brauchst du keine Bescheinigung.
 * Reservierungen gelten nur für den gebuchten Zug.
+* Ein späterer Einstieg an einem Unterwegsbahnhof und ein früherer Ausstieg vor dem Ziel sind üblicherweise erlaubt (siehe z. B. [drivest.de](https://drivest.de/4353/bahn-darf-man-an-einem-spaeteren-bahnhof-einsteigen-als-gebucht) und [bahn-tickets.com](https://www.bahn-tickets.com/nachrichten/falscher-start-zielbahnhof-bahnticket-einsteigen-aussteigen/)). Darauf beruht die Idee, ein längeres Ticket nur für einen Teil der Strecke zu nutzen.
 
 Weil das Ticket danach ein Jahr flexibel ist, spielt das **Reisedatum der gebuchten Verbindung keine Rolle**. Es zählt allein, wie wahrscheinlich die Kette reißt, und dass der Preis passt.
 
@@ -428,7 +434,8 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 * **Busse und Schienenersatzverkehr** haben in den DB-Daten meist keine Echtzeit und zählen nicht mit.
 * **Mindestumstiegszeiten** der DB sind je Bahnhof verschieden. Die Navigator-Variante nähert sie mit 3 Minuten an.
 * **Prognose oder Ist-Wert:** Die Zugbindung entfällt bei einer *voraussichtlichen* Verspätung. Das Tool rechnet mit den tatsächlichen Verspätungen. In der Praxis liegen beide nah beieinander.
-* **Keine Preise:** siehe [Schritt 3](#7-schritt-3-preis-auf-bahnde-prüfen).
+* **Preise nur über bahn.de:** Der Modus „Beste Reisetage“ fragt bahn.de direkt ab. Das klappt in der Regel von einem Heimanschluss, aber bahn.de kann die Anfragen jederzeit bremsen oder blockieren (dann meldet die App das). Das Antwortformat entspricht dem, das delay_bahn produktiv nutzt; ändert bahn.de es, muss das Tool angepasst werden.
+* **Ticket-Variante und Strecke:** Die App prüft die Plausibilität nur über Luftlinie und Richtung. Ob eine bestimmte Route im Einzelfall anerkannt wird, entscheidet die DB.
 * **Kein Rechtsrat:** Ob und wie die DB die Regeln anwendet, liegt bei der DB.
 
 ---
@@ -464,10 +471,11 @@ karten/
 ├── zugbindung/
 │   ├── web.py                    lokaler Webserver der App (nur Standardbibliothek)
 │   ├── static/index.html         Oberfläche der App
-│   ├── service.py                Suche und Prüfung, gemeinsam für App und Kommandozeile
+│   ├── service.py                Suche, beste Reisetage, Vorschläge, Prüfung (App und Kommandozeile)
+│   ├── geo.py                    Koordinaten (Transitous, zwischengespeichert) und Abstände
 │   ├── cli.py                    Kommandozeile (app, db-bauen, suche, pruefe)
 │   ├── transitous.py             Verbindungen und Haltestellen von Transitous
-│   ├── bahnde.py                 bahn.de-Link (vbid) einlesen
+│   ├── bahnde.py                 bahn.de: geteilte Links (vbid), Fahrplan mit Preisen, Bahnhofssuche
 │   ├── history.py                Zugriff auf die Verspätungsdatenbank
 │   ├── score.py                  Bewertung: Ausfälle, Anschlüsse, Ziel ≥ 20 min
 │   ├── report.py                 Ausgabe als Text, Markdown und JSON

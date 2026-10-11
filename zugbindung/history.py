@@ -127,3 +127,39 @@ class History:
             if best is None or sim > best[0]:
                 best = (sim, eva, st)
         return (best[1], best[2]) if best and best[0] >= 0.5 else None
+
+    def evas_named(self, name: str) -> list[str]:
+        """Alle EVA-Nummern mit genau diesem Bahnhofsnamen (Berlin Hbf hat z. B.
+        getrennte Nummern für oben, tief und S-Bahn)."""
+        return [eva for eva, st in self.stations().items() if st == name]
+
+    def connected(self, evas: list[str], before: bool, min_minutes: int, max_minutes: int,
+                  days: int = 10, min_rides: int = 5) -> list[tuple[str, str, int, float]]:
+        """Bahnhöfe, die mit direkten Zügen vor (before=True) bzw. nach einem der
+        evas erreicht werden, mit Anzahl Fahrten und typischer Fahrzeit.
+        Ergebnis: (eva, name, fahrten, minuten), häufigste zuerst."""
+        since = self.last_day - timedelta(days=days)
+        ph = ",".join("?" * len(evas))
+        if before:
+            hub_col, other_col, cond = "arrival_planned_time", "departure_planned_time", "o.t < h.t"
+            diff = "date_diff('minute', o.t, h.t)"
+        else:
+            hub_col, other_col, cond = "departure_planned_time", "arrival_planned_time", "o.t > h.t"
+            diff = "date_diff('minute', h.t, o.t)"
+        rows = self.con.execute(f"""
+            WITH h AS (
+                SELECT train_line_ride_id AS rid, {hub_col} AS t FROM delays
+                WHERE eva IN ({ph}) AND {hub_col} >= ?
+                  -- S-Bahn, Bus und Tram bringen nur Vororte; gesucht sind Regional- und Fernzüge
+                  AND coalesce(train_type, '') NOT IN ('S', 'Bus', 'BUS', 'STR', 'U', 'Tram', 'FLX')
+            ), o AS (
+                SELECT eva, station_name, train_line_ride_id AS rid, {other_col} AS t FROM delays
+                WHERE {other_col} >= ? AND eva NOT IN ({ph})
+            )
+            SELECT o.eva, any_value(o.station_name), count(DISTINCT o.rid), median({diff})
+            FROM h JOIN o USING (rid)
+            WHERE {cond} AND {diff} BETWEEN ? AND ?
+            GROUP BY 1 HAVING count(DISTINCT o.rid) >= ?
+            ORDER BY 3 DESC LIMIT 200""",
+            [*evas, since, since - timedelta(days=1), *evas, min_minutes, max_minutes, min_rides]).fetchall()
+        return [(e, n, int(r), float(m)) for e, n, r, m in rows]

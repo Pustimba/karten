@@ -155,7 +155,8 @@ class App:
             navigator_puffer=int(params.get("navigator_puffer") if params.get("navigator_puffer") not in (None, "") else 3),
             wochentage=",".join(params.get("wochentage") or []),
             ermaessigung=params.get("ermaessigung") or "bc25",
-            von_name=params.get("von_name") or "", nach_name=params.get("nach_name") or "")
+            von_name=params.get("von_name") or "", nach_name=params.get("nach_name") or "",
+            von_id=params.get("von_id") or "", nach_id=params.get("nach_id") or "")
         if not p.daten:
             raise RuntimeError("Bitte mindestens einen Reisetag wählen.")
         a = datetime.strptime(p.ab, "%H:%M")
@@ -175,6 +176,43 @@ class App:
         res.pop("pairs", None)
         job.say(f"{len(res['ergebnisse'])} Verbindungen bewertet.")
         return res
+
+    def job_bestetage(self, job: Job, params: dict):
+        from . import service
+        h = self.history()
+        p = service.BestDaysParams(
+            von=params["von"], nach=params["nach"], datum_von=params["datum_von"], datum_bis=params["datum_bis"],
+            wochentage=[int(x) for x in params.get("wochentage") or []],
+            ab=params.get("ab") or "05:00", bis=params.get("bis") or "19:00",
+            max_preis=float(str(params.get("max_preis") or 20).replace(",", ".")),
+            ermaessigung=params.get("ermaessigung") or "bc25",
+            navigator_puffer=int(params.get("navigator_puffer") if params.get("navigator_puffer") not in (None, "") else 3),
+            von_id=params.get("von_id") or "", nach_id=params.get("nach_id") or "",
+            starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x])
+        dates = service.travel_dates(p)
+        if not dates:
+            raise RuntimeError("Im gewählten Zeitraum liegt kein passender Reisetag.")
+        if len(dates) > 62:
+            raise RuntimeError("Bitte höchstens 62 Reisetage auf einmal abfragen.")
+        job.total, job.phase = len(dates), "bahn.de abfragen"
+        pairs = (1 + len(p.starts)) * (1 + len(p.ziele))
+        if pairs * len(dates) > 400:
+            raise RuntimeError(f"{pairs} Ticket-Varianten × {len(dates)} Tage sind zu viele Abfragen. "
+                               "Bitte weniger Bahnhöfe oder einen kürzeren Zeitraum wählen.")
+
+        def day_done(d, n):
+            job.done += 1
+
+        try:
+            return service.best_days(h, p, progress=job.say, day_done=day_done)
+        except service.bahnde.Blocked as e:
+            raise RuntimeError(str(e))
+
+    def job_vorschlaege(self, job: Job, params: dict):
+        from . import service
+        h = self.history()
+        job.phase = "Bahnhöfe vor und hinter der Wunschstrecke suchen"
+        return service.suggest_endpoints(h, params["von"], params["nach"], progress=job.say)
 
     def job_pruefe(self, job: Job, params: dict):
         from . import service
@@ -236,9 +274,18 @@ def make_handler(app: App):
                 if url.path == "/api/status":
                     return self._json(app.status())
                 if url.path == "/api/halte":
+                    qs = parse_qs(url.query)
+                    q = (qs.get("q") or [""])[0].strip()
+                    if len(q) < 3:
+                        return self._json([])
+                    if (qs.get("quelle") or [""])[0] == "bahnde":
+                        from . import bahnde
+                        try:
+                            return self._json(bahnde.Client(pause=0.3).locations(q))
+                        except bahnde.Blocked as e:
+                            return self._json({"fehler": str(e)}, 502)
                     from . import transitous
-                    q = (parse_qs(url.query).get("q") or [""])[0].strip()
-                    return self._json(transitous.candidates(q) if len(q) >= 3 else [])
+                    return self._json(transitous.candidates(q))
                 if url.path.startswith("/api/job/"):
                     job = app.jobs.get(url.path.rsplit("/", 1)[-1])
                     return self._json(job.to_dict() if job else {"fehler": "unbekannter Job"}, 200 if job else 404)
@@ -257,6 +304,12 @@ def make_handler(app: App):
                 if url.path == "/api/suche":
                     app.history()   # Fehler sofort melden, wenn Daten fehlen
                     return self._json({"job": app.start("suche", app.job_suche, body).id})
+                if url.path == "/api/vorschlaege":
+                    app.history()
+                    return self._json({"job": app.start("vorschlaege", app.job_vorschlaege, body).id})
+                if url.path == "/api/bestetage":
+                    app.history()
+                    return self._json({"job": app.start("bestetage", app.job_bestetage, body).id})
                 if url.path == "/api/pruefe":
                     app.history()
                     return self._json({"job": app.start("pruefe", app.job_pruefe, body).id})

@@ -50,6 +50,16 @@ textarea { min-height: 110px; resize: vertical; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.ghost { background: var(--soft); color: var(--ink); font-weight: 500; }
 .btn.small { padding: 6px 12px; font-size: 13px; }
+.seg { display: inline-flex; background: var(--soft); border-radius: 11px; padding: 3px; gap: 2px; margin-bottom: 12px; flex-wrap: wrap; }
+.seg button { border: 0; background: none; font: inherit; color: var(--muted); padding: 7px 14px; border-radius: 9px; cursor: pointer; }
+.seg button.on { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.seg small { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.price { display: inline-block; background: var(--soft); border-radius: 7px; padding: 1px 8px; font-weight: 700; color: var(--ink); }
+.chip.off { opacity: .45; }
+.chip .nm { cursor: pointer; }
+.chip small { color: var(--muted); margin-left: 4px; }
+.lblsub { color: var(--muted); font-size: 12px; }
+.ticket { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .chip { background: var(--soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
 .chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
@@ -144,15 +154,48 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
   <!-- ===================== SUCHEN ===================== -->
   <section id="tab-suche">
     <div class="card">
-      <h2>Verbindungen suchen</h2>
-      <p class="sub">Findet Zugketten, deren Zugbindung mit hoher Wahrscheinlichkeit entfällt.</p>
+      <div class="seg" id="mode">
+        <button type="button" data-mode="preis" class="on">Beste Reisetage <small>mit Preis</small></button>
+        <button type="button" data-mode="ketten">Zugketten erkunden <small>ohne Preis</small></button>
+      </div>
+      <p class="sub mode-preis">Fragt bahn.de für jeden Tag im Zeitraum ab, behält Verbindungen bis zum Höchstpreis und sortiert sie danach, wie wahrscheinlich die Zugbindung entfällt.</p>
+      <p class="sub mode-ketten hidden">Sucht über einen offenen Routenplaner nach typischen Zugketten, ohne Preise. Gut, um Muster zu finden, die sich dann auf bahn.de an beliebigen Tagen buchen lassen.</p>
       <form id="f-suche" autocomplete="off">
         <div class="grid">
-          <div class="ac"><label for="von">Von</label><input id="von" placeholder="z. B. Forst (Lausitz)" required>
+          <div class="ac"><label for="von" id="lbl-von">Von</label><input id="von" placeholder="z. B. Forst (Lausitz)" required>
             <div class="ac-hint" id="von-hint"></div></div>
-          <div class="ac"><label for="nach">Nach</label><input id="nach" placeholder="z. B. Stolberg (Rheinl) Hbf" required>
+          <div class="ac"><label for="nach" id="lbl-nach">Nach</label><input id="nach" placeholder="z. B. Stolberg (Rheinl) Hbf" required>
             <div class="ac-hint" id="nach-hint"></div></div>
-          <div>
+
+          <div class="mode-preis">
+            <label>Ticket darf früher beginnen in <span class="lblsub">(liegt vor deinem Start)</span></label>
+            <div class="chips" id="starts"></div>
+            <div class="row" style="margin-top:6px"><input id="start-add" placeholder="Bahnhof ergänzen" style="flex:1"><button type="button" class="btn ghost small" data-add="starts">+</button></div>
+          </div>
+          <div class="mode-preis">
+            <label>Ticket darf später enden in <span class="lblsub">(liegt hinter deinem Ziel)</span></label>
+            <div class="chips" id="ziele"></div>
+            <div class="row" style="margin-top:6px"><input id="ziel-add" placeholder="Bahnhof ergänzen" style="flex:1"><button type="button" class="btn ghost small" data-add="ziele">+</button></div>
+          </div>
+          <div class="mode-preis full">
+            <div class="row"><button type="button" class="btn ghost" id="go-vor">Passende Bahnhöfe vorschlagen</button>
+              <span class="sub" style="margin:0;font-size:13px" id="vor-hint">Findet Bahnhöfe vor dem Start und hinter dem Ziel, über die ein Ticket plausibel deine Strecke einschließt.</span></div>
+            <div class="progress hidden" id="p-vor"></div>
+          </div>
+          <div class="mode-preis">
+            <label>Zeitraum</label>
+            <div class="row"><input type="date" id="dvon" style="flex:1"><span class="sub" style="margin:0">bis</span><input type="date" id="dbis" style="flex:1"></div>
+            <div class="ac-hint" id="dhint"></div>
+          </div>
+          <div class="mode-preis row" style="align-items:flex-start">
+            <div style="flex:1"><label for="maxp">Höchstpreis (€)</label><input type="number" id="maxp" value="20" min="1" step="0.5"></div>
+            <div style="flex:1.3"><label for="erm">Ermäßigung</label>
+              <select id="erm"><option value="bc25">BahnCard 25</option><option value="bc50">BahnCard 50</option><option value="keine">keine</option></select></div>
+          </div>
+          <div class="mode-preis full"><label>Nur an diesen Wochentagen reisen (leer = alle)</label>
+            <div class="checks" id="rwd"></div></div>
+
+          <div class="mode-ketten hidden">
             <label for="tag">Reisetage</label>
             <div class="row"><input type="date" id="tag" style="flex:1"><button type="button" class="btn ghost" id="addtag">Hinzufügen</button></div>
             <div class="chips" id="tage"></div>
@@ -160,24 +203,22 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
           <div class="row" style="align-items:flex-start">
             <div style="flex:1"><label for="ab">Abfahrt ab</label><input type="time" id="ab" value="05:00"></div>
             <div style="flex:1"><label for="bis">bis</label><input type="time" id="bis" value="19:00"></div>
-            <div style="flex:1.3"><label for="erm">Ermäßigung</label>
-              <select id="erm"><option value="bc25">BahnCard 25</option><option value="bc50">BahnCard 50</option><option value="keine">keine</option></select></div>
           </div>
         </div>
         <details class="adv"><summary>Erweiterte Einstellungen</summary>
           <div class="grid">
-            <div><label for="raster">Abfrage alle</label>
-              <select id="raster"><option value="20">20 Minuten (gründlich)</option><option value="30" selected>30 Minuten</option><option value="60">60 Minuten (schnell)</option></select></div>
-            <div><label for="minu">Kürzester erlaubter Umstieg (Minuten)</label><input type="number" id="minu" value="4" min="0" max="30"></div>
             <div><label for="navp">Anschluss gilt als verpasst bei weniger als … Minuten Restzeit</label><input type="number" id="navp" value="3" min="0" max="15"></div>
-            <div><label>Verkehrsmittel abfragen</label>
+            <div class="mode-ketten hidden"><label for="raster">Abfrage alle</label>
+              <select id="raster"><option value="20">20 Minuten (gründlich)</option><option value="30" selected>30 Minuten</option><option value="60">60 Minuten (schnell)</option></select></div>
+            <div class="mode-ketten hidden"><label for="minu">Kürzester erlaubter Umstieg (Minuten)</label><input type="number" id="minu" value="4" min="0" max="30"></div>
+            <div class="mode-ketten hidden"><label>Verkehrsmittel abfragen</label>
               <div class="checks"><label><input type="checkbox" id="m-alle" checked> alle Züge</label><label><input type="checkbox" id="m-ohne" checked> ohne ICE</label><label><input type="checkbox" id="m-betr"> auch FlixTrain usw.</label></div></div>
-            <div class="full"><label>Nur diese Wochentage aus der Vergangenheit auswerten (leer = alle)</label>
+            <div class="mode-ketten hidden full"><label>Nur diese Wochentage aus der Vergangenheit auswerten (leer = alle)</label>
               <div class="checks" id="wd"></div></div>
           </div>
         </details>
         <div class="row" style="margin-top:16px"><button class="btn" id="go-suche" type="submit">Suchen</button>
-          <span class="sub" style="margin:0">Dauert etwa 3 bis 5 Minuten pro Reisetag.</span></div>
+          <span class="sub" style="margin:0" id="dauer">Dauert etwa 3 bis 5 Minuten pro Reisetag.</span></div>
       </form>
       <div class="progress hidden" id="p-suche"></div>
     </div>
@@ -219,14 +260,18 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
     <div class="card help">
       <h2>So funktioniert es</h2>
       <p>Die Zugbindung eines Sparpreises entfällt laut <a href="https://www.bahn.de/faq/zugbindung-aufgehoben-bedeutung" target="_blank" rel="noopener">DB-FAQ</a> bei einem Zugausfall, einem verpassten Anschluss oder voraussichtlich mindestens 20 Minuten Verspätung am Ziel. Das Ticket gilt dann bis zu einem Jahr für eine Verbindung freier Wahl zum selben Ziel.</p>
+      <h3>Die Idee</h3>
+      <p>Du willst z. B. von <b>Berlin nach Köln</b>. Gebucht wird ein günstiger Sparpreis für eine <b>längere</b> Strecke, die Berlin → Köln einschließt, etwa Frankfurt (Oder) → Aachen, und zwar mit einer wackligen Zugkette. Entfällt die Zugbindung, fährst du davon nur Berlin → Köln, mit einem Zug deiner Wahl. Späterer Einstieg, früherer Ausstieg und eine andere Route sind dabei erlaubt, solange die Strecke plausibel ist.</p>
       <h3>Ablauf</h3>
       <ol>
         <li><b>Daten</b>: einmalig die Verspätungsdaten laden, danach etwa wöchentlich aktualisieren.</li>
-        <li><b>Suchen</b>: Start, Ziel und einen oder mehrere Reisetage eingeben. Die Reisetage dienen nur dazu, typische Zugketten zu finden; gebucht werden kann später an jedem Tag.</li>
-        <li>Bei einem guten Treffer auf <b>„Auf bahn.de suchen“</b> klicken. Dort „Schnelle Verbindungen bevorzugen“ abwählen und die angezeigten <b>Zwischenhalte</b> eintragen, damit bahn.de genau diese Kette anbietet.</li>
-        <li>Preis prüfen (Ziel: 13,49 € mit BahnCard 25, höchstens 20 €). Dann auf „Teilen“ klicken und den Link unter <b>Link prüfen</b> einfügen.</li>
-        <li>Buchen, Ticket im DB Navigator hinterlegen und am Reisetag den Hinweis „Zugbindung aufgehoben“ mit Screenshot festhalten.</li>
+        <li><b>Suchen → Beste Reisetage</b>: eintragen, wo du wirklich fahren willst (z. B. Berlin Hbf → Köln Hbf).</li>
+        <li><b>Passende Bahnhöfe vorschlagen</b>: die App sucht Bahnhöfe vor deinem Start und hinter deinem Ziel, über die ein Ticket deine Strecke plausibel einschließt. Per Klick an- oder abwählen; jede Auswahl ist eine weitere Ticket-Variante.</li>
+        <li>Zeitraum, Höchstpreis und Ermäßigung wählen, <b>Suchen</b>. Die App fragt bahn.de für jede Ticket-Variante und jeden Tag ab und sortiert die Verbindungen bis zum Höchstpreis nach der Wahrscheinlichkeit, dass die Zugbindung entfällt.</li>
+        <li>Beim besten Treffer auf <b>„Auf bahn.de suchen“</b> klicken, dort „Schnelle Verbindungen bevorzugen“ abwählen und die angezeigten Zwischenhalte eintragen, damit genau diese Kette erscheint. Buchen.</li>
+        <li>Ticket im DB Navigator hinterlegen und am Reisetag den Hinweis „Zugbindung aufgehoben“ mit Screenshot festhalten.</li>
       </ol>
+      <p>Der Modus <b>Zugketten erkunden</b> braucht kein bahn.de und zeigt typische Ketten ohne Preis. <b>Link prüfen</b> bewertet eine einzelne geteilte bahn.de-Verbindung.</p>
       <h3>Die Zahlen</h3>
       <ul>
         <li><b>Große Zahl</b>: Anteil der vergangenen Tage, an denen mindestens ein Auslöser eingetreten wäre. Ein Anschluss zählt als verpasst, wenn weniger als 3 Minuten Umstiegszeit bleiben (so ähnlich urteilt der DB Navigator).</li>
@@ -246,7 +291,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-let state = { tage: [], stops: { von: null, nach: null }, status: null, results: { suche: [], pruefe: [] } };
+let state = { mode: "preis", starts: [], ziele: [], tage: [], stops: { von: null, nach: null }, status: null, results: { suche: [], pruefe: [] } };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem("zb-" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -298,7 +343,7 @@ const fmtDate = (iso) => iso ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + 
 
 // ---------------- Jobs
 let activeJob = null;
-function setBusy(b) { ["#go-suche", "#go-pruefe", "#go-daten"].forEach((s) => $(s).disabled = b); }
+function setBusy(b) { ["#go-suche", "#go-pruefe", "#go-daten", "#go-vor"].forEach((s) => $(s).disabled = b); }
 function progressBox(el, j) {
   el.classList.remove("hidden");
   const known = j.gesamt > 0;
@@ -310,7 +355,7 @@ function progressBox(el, j) {
     <details ${j.status === "fehler" ? "open" : ""}><summary class="sub" style="margin:8px 0 0;cursor:pointer;font-size:13px">Protokoll</summary><pre class="log">${esc(j.log.join("\n"))}</pre></details>`;
 }
 function resumeJob(j) {
-  const box = { daten: "#p-daten", suche: "#p-suche", pruefe: "#p-pruefe" }[j.art];
+  const box = { daten: "#p-daten", suche: "#p-suche", bestetage: "#p-suche", vorschlaege: "#p-vor", pruefe: "#p-pruefe" }[j.art];
   follow(j.id, $(box), j.art);
 }
 async function follow(id, box, art) {
@@ -322,7 +367,8 @@ async function follow(id, box, art) {
     progressBox(box, j);
     if (j.status !== "laeuft") {
       if (j.status === "fertig") {
-        if (art === "suche") { state.results.suche = j.ergebnis.ergebnisse; renderResults("suche", j.ergebnis); box.classList.add("hidden"); }
+        if (art === "suche" || art === "bestetage") { state.results.suche = j.ergebnis.ergebnisse; renderResults("suche", j.ergebnis); box.classList.add("hidden"); }
+        if (art === "vorschlaege") { applySuggestions(j.ergebnis); box.classList.add("hidden"); }
         if (art === "pruefe") { state.results.pruefe = j.ergebnis.ergebnisse; renderResults("pruefe", j.ergebnis); box.classList.add("hidden"); }
         if (art === "daten") { box.insertAdjacentHTML("afterbegin", `<div class="info" style="margin:0 0 12px">Fertig. Die neuen Daten sind aktiv.</div>`); }
       }
@@ -340,14 +386,16 @@ function autocomplete(key) {
   const input = $("#" + key), hint = $("#" + key + "-hint");
   let list = null, timer = null, items = [], sel = -1;
   const close = () => { list?.remove(); list = null; sel = -1; };
-  const choose = (it) => { input.value = it.name; state.stops[key] = it; hint.textContent = "✓ " + it.name; close(); saveForm(); };
+  const choose = (it) => { input.value = it.name; state.stops[key] = { ...it, quelle: source() }; hint.textContent = "✓ " + it.name; close(); saveForm(); };
+  const source = () => state.mode === "preis" ? "bahnde" : "transitous";
   input.addEventListener("input", () => {
     state.stops[key] = null; hint.textContent = "";
     clearTimeout(timer);
     const q = input.value.trim();
     if (q.length < 3) return close();
     timer = setTimeout(async () => {
-      try { items = await api("/api/halte?q=" + encodeURIComponent(q)); } catch { items = []; }
+      try { items = await api("/api/halte?q=" + encodeURIComponent(q) + "&quelle=" + source()); }
+      catch (e) { items = []; hint.textContent = e.message; }
       close();
       if (!items.length || document.activeElement !== input) return;
       list = document.createElement("div"); list.className = "ac-list";
@@ -378,17 +426,94 @@ $("#addtag").onclick = () => {
 };
 $("#tag").addEventListener("change", () => $("#addtag").click());
 $("#wd").innerHTML = WD.map((w, i) => `<label><input type="checkbox" value="${w.toLowerCase()}"> ${w}</label>`).join("");
+$("#rwd").innerHTML = WD.map((w, i) => `<label><input type="checkbox" value="${i}"> ${w}</label>`).join("");
+
+// ---------------- Modus
+function setMode(m) {
+  state.mode = m;
+  $$("#mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+  $$(".mode-preis").forEach((el) => el.classList.toggle("hidden", m !== "preis"));
+  $$(".mode-ketten").forEach((el) => el.classList.toggle("hidden", m !== "ketten"));
+  $("#lbl-von").textContent = m === "preis" ? "Ich möchte fahren von" : "Von";
+  $("#lbl-nach").textContent = m === "preis" ? "nach" : "Nach";
+  ["von", "nach"].forEach((k) => {   // Halte-IDs gelten nur für ihre Quelle
+    const st = state.stops[k];
+    $("#" + k + "-hint").textContent = st && st.quelle === (m === "preis" ? "bahnde" : "transitous") ? "✓ " + st.name : "";
+  });
+  updateEstimate();
+  store.set("mode", m);
+}
+$$("#mode button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+// ---------------- Ticket-Starts und -Ziele
+function renderEnds() {
+  for (const k of ["starts", "ziele"]) {
+    $("#" + k).innerHTML = state[k].map((x, i) => `<span class="chip ${x.on ? "" : "off"}" title="${x.on ? "wird gesucht, klicken zum Abwählen" : "abgewählt, klicken zum Auswählen"}">
+      <span class="nm" data-k="${k}" data-i="${i}">${x.on ? "✓ " : ""}${esc(x.name)}${x.km ? `<small>${x.km} km</small>` : ""}</span>
+      <button type="button" data-k="${k}" data-del="${i}" title="entfernen">×</button></span>`).join("")
+      || `<span class="sub" style="margin:0;font-size:13px">keine; nur deine Strecke selbst wird gesucht</span>`;
+  }
+  $$(".chip .nm").forEach((el) => el.onclick = () => { const x = state[el.dataset.k][+el.dataset.i]; x.on = !x.on; renderEnds(); saveForm(); updateEstimate(); });
+  $$(".chip [data-del]").forEach((b) => b.onclick = () => { state[b.dataset.k].splice(+b.dataset.del, 1); renderEnds(); saveForm(); updateEstimate(); });
+}
+function addEnd(k, name) {
+  name = name.trim(); if (!name || state[k].some((x) => x.name === name)) return;
+  state[k].push({ name, on: true }); renderEnds(); saveForm(); updateEstimate();
+}
+$$("[data-add]").forEach((b) => b.onclick = () => { const inp = $(b.dataset.add === "starts" ? "#start-add" : "#ziel-add"); addEnd(b.dataset.add, inp.value); inp.value = ""; });
+["#start-add", "#ziel-add"].forEach((sel) => $(sel).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $(sel).nextElementSibling.click(); } }));
+function applySuggestions(res) {
+  for (const k of ["starts", "ziele"]) {
+    const manual = state[k].filter((x) => !x.km);
+    const sug = (res[k] || []).filter((x) => !manual.some((m) => m.name === x.name)).map((x, i) => ({ name: x.name, km: x.km, on: i < 2 }));
+    state[k] = [...manual, ...sug];
+  }
+  $("#vor-hint").textContent = `${res.starts.length} Starts und ${res.ziele.length} Ziele gefunden. Die ersten zwei sind ausgewählt; per Klick an- oder abwählen. Jede weitere Auswahl verlängert die Suche.`;
+  renderEnds(); saveForm(); updateEstimate();
+}
+$("#go-vor").onclick = async () => {
+  const box = $("#p-vor");
+  if (!$("#von").value || !$("#nach").value) { box.classList.remove("hidden"); box.innerHTML = `<div class="err">Bitte zuerst Start und Ziel deiner Wunschstrecke eingeben.</div>`; return; }
+  try { const { job } = await api("/api/vorschlaege", { von: $("#von").value, nach: $("#nach").value }); follow(job, box, "vorschlaege"); }
+  catch (err) { box.classList.remove("hidden"); box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+};
+const onEnds = (k) => state[k].filter((x) => x.on).map((x) => x.name);
+
+function reiseTage() {
+  const a = $("#dvon").value, b = $("#dbis").value;
+  if (!a || !b || b < a) return [];
+  const wd = $$("#rwd input:checked").map((c) => +c.value), out = [];
+  for (let d = new Date(a + "T12:00:00"); d <= new Date(b + "T12:00:00"); d.setDate(d.getDate() + 1)) {
+    if (!wd.length || wd.includes((d.getDay() + 6) % 7)) out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+function updateEstimate() {
+  if (state.mode === "preis") {
+    const n = reiseTage().length, v = (1 + onEnds("starts").length) * (1 + onEnds("ziele").length);
+    $("#dhint").textContent = n ? `${n} Reisetage × ${v} Ticket-Variante${v > 1 ? "n" : ""}` : "Zeitraum prüfen";
+    const lo = Math.max(1, Math.round(n * v * 12 / 60)), hi = Math.max(2, Math.round(n * v * 30 / 60));
+    $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v > 400 ? " Zu viele Abfragen: bitte weniger Bahnhöfe oder Tage." : "") : "";
+  } else {
+    $("#dauer").textContent = "Dauert etwa 3 bis 5 Minuten pro Reisetag.";
+  }
+}
+["#dvon", "#dbis"].forEach((sel) => $(sel).addEventListener("change", updateEstimate));
+$("#rwd").addEventListener("change", updateEstimate);
 
 // ---------------- Formular merken
 function saveForm() {
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
-    erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value });
+    erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
+    dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
+    starts: state.starts, ziele: state.ziele });
 }
 function loadForm() {
   const f = store.get("form", null);
   const today = new Date().toISOString().slice(0, 10);
   if (f) {
-    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
+    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
+    $$("#rwd input").forEach((c) => c.checked = (f.rwd || []).includes(c.value));
+    state.starts = f.starts || []; state.ziele = f.ziele || [];
     state.stops = f.stops || state.stops;
     if (state.stops.von) $("#von-hint").textContent = "✓ " + state.stops.von.name;
     if (state.stops.nach) $("#nach-hint").textContent = "✓ " + state.stops.nach.name;
@@ -396,17 +521,35 @@ function loadForm() {
   }
   if (!state.tage.length) { const d = new Date(); d.setDate(d.getDate() + 7); state.tage = [d.toISOString().slice(0, 10)]; }
   $("#tag").min = today;
-  renderTage();
+  const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  if (!$("#dvon").value || $("#dvon").value < today) $("#dvon").value = plus(1);
+  if (!$("#dbis").value || $("#dbis").value < $("#dvon").value) $("#dbis").value = plus(14);
+  $("#dvon").min = today; $("#dbis").min = today;
+  renderTage(); renderEnds();
 }
 $$("#f-suche input, #f-suche select").forEach((el) => el.addEventListener("change", saveForm));
 
 // ---------------- Aktionen
 $("#f-suche").onsubmit = async (e) => {
   e.preventDefault();
+  const idFor = (k, q) => state.stops[k] && state.stops[k].quelle === q && state.stops[k].name === $("#" + k).value ? state.stops[k].id : "";
+  if (state.mode === "preis") {
+    const tage = reiseTage();
+    if (!tage.length) { const b = $("#p-suche"); b.classList.remove("hidden"); b.innerHTML = `<div class="err">Bitte einen gültigen Zeitraum wählen.</div>`; return; }
+    const body = { von: $("#von").value, nach: $("#nach").value, von_id: idFor("von", "bahnde"), nach_id: idFor("nach", "bahnde"),
+      datum_von: $("#dvon").value, datum_bis: $("#dbis").value, wochentage: $$("#rwd input:checked").map((c) => +c.value),
+      ab: $("#ab").value, bis: $("#bis").value, max_preis: $("#maxp").value, ermaessigung: $("#erm").value, navigator_puffer: $("#navp").value,
+      starts: onEnds("starts"), ziele: onEnds("ziele") };
+    $("#r-suche").innerHTML = "";
+    try { const { job } = await api("/api/bestetage", body); follow(job, $("#p-suche"), "bestetage"); }
+    catch (err) { const b = $("#p-suche"); b.classList.remove("hidden"); b.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+    return;
+  }
   const modi = [$("#m-alle").checked && "alle", $("#m-ohne").checked && "ohne_ICE"].filter(Boolean);
   const body = {
-    von: state.stops.von?.id || $("#von").value, nach: state.stops.nach?.id || $("#nach").value,
-    von_name: state.stops.von?.name || "", nach_name: state.stops.nach?.name || "",
+    von: $("#von").value, nach: $("#nach").value,
+    von_id: idFor("von", "transitous"), nach_id: idFor("nach", "transitous"),
+    von_name: $("#von").value, nach_name: $("#nach").value,
     daten: state.tage, ab: $("#ab").value, bis: $("#bis").value, raster: $("#raster").value,
     min_umstieg: $("#minu").value, navigator_puffer: $("#navp").value, modi: modi.length ? modi : ["alle"],
     alle_betreiber: $("#m-betr").checked, ermaessigung: $("#erm").value,
@@ -450,7 +593,8 @@ function card(r, i) {
     <div class="score ${scoreClass(r.p_navigator)}"><b>${pct(r.p_navigator)}</b><small>streng ${pct(r.p_streng)}</small><small>${r.tage_navigator[0]}/${r.tage_navigator[1]} Tage</small></div>
     <div>
       ${r.titel ? `<div class="meta" style="margin-bottom:2px">${esc(r.titel)}</div>` : ""}
-      <div class="meta">${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
+      ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}</div>` : ""}
+      <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
       <div class="chain">${chain}</div>
       <div class="risks">${risks}</div>
       <div class="actions">
@@ -465,19 +609,34 @@ function card(r, i) {
       </details>
     </div></div>`;
 }
+function dayOverview(res) {
+  const euro = (x) => x == null ? "-" : x.toFixed(2).replace(".", ",") + " €";
+  const best = {};
+  (res.ergebnisse || []).forEach((r) => { const d = r.ab.slice(0, 10); if (!best[d] || r.p_navigator > best[d]) best[d] = r.p_navigator; });
+  const rows = res.tage.map((t) => `<tr><td>${dm(t.datum + "T00")}</td><td class="num">${t.verbindungen}</td><td class="num">${t.bis_max_preis}</td>
+    <td class="num">${euro(t.guenstigster)}</td><td class="num">${best[t.datum] != null ? pct(best[t.datum]) : "-"}</td></tr>`).join("");
+  return `<details class="card" style="padding:12px 20px"><summary style="cursor:pointer">Übersicht nach Reisetag</summary>
+    <table><tr><th>Tag</th><th class="num">Verbindungen</th><th class="num">bis ${euro(res.max_preis)}</th><th class="num">günstigste</th><th class="num">beste Chance</th></tr>${rows}</table></details>`;
+}
 function renderResults(kind, res) {
   const target = $("#r-" + kind);
   const list = state.results[kind] || [];
   const head = kind === "suche"
-    ? `<div class="toolbar"><div><b>${list.length} Verbindungen</b> <span class="sub">${esc(res.von)} → ${esc(res.nach)} · Daten ${fmtDate(res.daten_von)} bis ${fmtDate(res.daten_bis)}</span></div>
+    ? `<div class="toolbar"><div><b>${list.length} Verbindungen${res.tage ? " bis " + String(res.max_preis).replace(".", ",") + " €" : ""}</b> <span class="sub">${res.varianten ? "nutzbar für " : ""}${esc(res.von)} → ${esc(res.nach)}${res.varianten && res.varianten.length > 1 ? " · " + res.varianten.length + " Ticket-Varianten" : ""} · Daten ${fmtDate(res.daten_von)} bis ${fmtDate(res.daten_bis)}</span></div>
        <div class="row"><label for="sort" style="margin:0">Sortieren</label><select id="sort-${kind}">
-       <option value="nav">Wahrscheinlichkeit</option><option value="streng">streng</option><option value="tage">Tagesnachspielung</option><option value="ab">Abfahrt</option><option value="dauer">Fahrzeit</option></select>
-       <select id="min-${kind}"><option value="0" selected>alle</option><option value="0.5">ab 50 %</option><option value="0.75">ab 75 %</option></select></div></div>`
+       <option value="nav">Wahrscheinlichkeit</option>${res.tage ? '<option value="preis">Preis</option>' : ""}<option value="streng">streng</option><option value="tage">Tagesnachspielung</option><option value="ab">Abfahrt</option><option value="dauer">Fahrzeit</option></select>
+       <select id="min-${kind}"><option value="0" selected>alle</option><option value="0.5">ab 50 %</option><option value="0.75">ab 75 %</option></select>
+       ${res.varianten && res.varianten.length > 1 ? `<select id="var-${kind}"><option value="">alle Tickets</option>${res.varianten.map((v) => `<option>${esc(v)}</option>`).join("")}</select>` : ""}
+       ${res.tage ? `<select id="day-${kind}"><option value="">alle Tage</option>${res.tage.filter((t) => t.bis_max_preis).map((t) => `<option value="${t.datum}">${dm(t.datum + "T00")}</option>`).join("")}</select>` : ""}</div></div>
+       ${res.tage ? dayOverview(res) : ""}`
     : "";
   const sorted = () => {
     const by = $("#sort-" + kind)?.value || "nav", min = +($("#min-" + kind)?.value || 0);
-    const f = { nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
-    return list.filter((r) => r.fehler || r.p_navigator >= min).sort((a, b) => (f(a) > f(b)) - (f(a) < f(b)));
+    const day = $("#day-" + kind)?.value || "", variant = $("#var-" + kind)?.value || "";
+    const f = { preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
+    return list.filter((r) => r.fehler || (r.p_navigator >= min && (!day || r.ab.slice(0, 10) === day)
+      && (!variant || `${r.ticket_von} → ${r.ticket_nach}` === variant)))
+      .sort((a, b) => (f(a) > f(b)) - (f(a) < f(b)) || (b.p_navigator - a.p_navigator));
   };
   target.innerHTML = head + `<div id="list-${kind}"></div>`;
   const draw = () => {
@@ -487,10 +646,13 @@ function renderResults(kind, res) {
   };
   $("#sort-" + kind)?.addEventListener("change", draw);
   $("#min-" + kind)?.addEventListener("change", draw);
+  $("#day-" + kind)?.addEventListener("change", draw);
+  $("#var-" + kind)?.addEventListener("change", draw);
   draw();
 }
 
 loadForm();
+setMode(store.get("mode", "preis"));
 showTab(store.get("tab", "suche"));
 refreshStatus();
 setInterval(() => { if (!activeJob) refreshStatus(); }, 15000);
