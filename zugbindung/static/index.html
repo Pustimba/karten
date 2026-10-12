@@ -261,7 +261,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
   <section id="tab-pruefe" class="hidden">
     <div class="card">
       <h2>bahn.de-Verbindung prüfen</h2>
-      <p class="sub">Auf bahn.de die Verbindung öffnen, auf „Teilen“ klicken und den Link hier einfügen. Mehrere Links: einer pro Zeile.</p>
+      <p class="sub">Auf bahn.de oder im DB Navigator die Verbindung öffnen, auf „Teilen“ tippen und den Link oder den ganzen Teilen-Text hier einfügen. Mehrere Verbindungen gehen auf einmal. Das Prüfen klappt auch, während eine Suche läuft.</p>
       <textarea id="links" placeholder="https://www.bahn.de/buchung/start?vbid=…"></textarea>
       <div class="row" style="margin-top:12px"><button class="btn" id="go-pruefe">Prüfen</button></div>
       <div class="progress hidden" id="p-pruefe"></div>
@@ -384,7 +384,7 @@ const fmtDate = (iso) => iso ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + 
 
 // ---------------- Jobs
 let activeJob = null;
-function setBusy(b) { ["#go-suche", "#go-pruefe", "#go-daten", "#go-vor"].forEach((s) => $(s).disabled = b); }
+function setBusy(b) { ["#go-suche", "#go-daten", "#go-vor"].forEach((s) => $(s).disabled = b); }
 function progressBox(el, j) {
   el.classList.remove("hidden");
   const known = j.gesamt > 0;
@@ -400,7 +400,9 @@ function resumeJob(j) {
   follow(j.id, $(box), j.art);
 }
 async function follow(id, box, art) {
-  activeJob = id; setBusy(true);
+  // Link prüfen läuft neben einer Suche her und sperrt nur den eigenen Knopf
+  const side = art === "pruefe";
+  if (side) $("#go-pruefe").disabled = true; else { activeJob = id; setBusy(true); }
   if (art === "daten") $("#stop-daten").classList.remove("hidden");
   while (true) {
     let j;
@@ -418,6 +420,7 @@ async function follow(id, box, art) {
     }
     await new Promise((r) => setTimeout(r, 1500));
   }
+  if (side) { $("#go-pruefe").disabled = false; return; }
   activeJob = null; setBusy(false); $("#stop-daten").classList.add("hidden");
   refreshStatus();
 }

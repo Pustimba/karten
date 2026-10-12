@@ -84,13 +84,16 @@ class App:
         return d
 
     # ------------------------------------------------------------ Jobs
-    def start(self, kind: str, target, *args) -> Job:
+    def start(self, kind: str, target, *args, exclusive: bool = True) -> Job:
+        """exclusive=False: läuft neben einer anderen Aufgabe (Link prüfen
+        braucht nur wenige einzelne Abrufe und soll eine lange Suche nicht abwarten)."""
         with self.lock:
-            if self.current and self.current.status == "laeuft":
+            if exclusive and self.current and self.current.status == "laeuft":
                 raise RuntimeError("Es läuft schon eine Aufgabe. Bitte warten, bis sie fertig ist.")
             job = Job(kind)
             self.jobs[job.id] = job
-            self.current = job
+            if exclusive:
+                self.current = job
 
         def run():
             try:
@@ -226,9 +229,12 @@ class App:
     def job_pruefe(self, job: Job, params: dict):
         from . import service
         h = self.history()
-        links = [l for l in re.split(r"\s+", params.get("links", "")) if l]
+        # auch den ganzen Teilen-Text aus dem Navigator annehmen: nur die vbids zählen
+        text = params.get("links", "")
+        vbids = list(dict.fromkeys(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text)))
+        links = [f"https://www.bahn.de/buchung/start?vbid={v}" for v in vbids]
         if not links:
-            raise RuntimeError("Bitte mindestens einen bahn.de-Link einfügen.")
+            raise RuntimeError("Kein bahn.de-Link gefunden. Bitte den Link aus „Teilen“ einfügen; er enthält „vbid=…“.")
         job.total, job.phase = len(links), "bahn.de abfragen"
 
         def progress(msg):
@@ -330,7 +336,7 @@ def make_handler(app: App):
                     return self._json({"job": app.start("bestetage", app.job_bestetage, body).id})
                 if url.path == "/api/pruefe":
                     app.history()
-                    return self._json({"job": app.start("pruefe", app.job_pruefe, body).id})
+                    return self._json({"job": app.start("pruefe", app.job_pruefe, body, exclusive=False).id})
                 if url.path.startswith("/api/abbrechen/"):
                     return self._json({"ok": app.cancel(url.path.rsplit("/", 1)[-1])})
                 if url.path == "/api/beenden":

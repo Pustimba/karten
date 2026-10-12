@@ -15,6 +15,7 @@ dieses Tages nachgespielt. Daraus entstehen zwei Kennzahlen:
   tage_mit/tage  echte Tagessimulation, nur Tage, an denen jeder Teil der
                  Kette Daten hat. Ehrlicher, aber oft nur wenige Tage.
 """
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -81,6 +82,10 @@ def drop_planned_blocks(s: dict[date, tuple[int, bool]], min_run: int = 3) -> di
     return {d: v for d, v in s.items() if d not in block}
 
 
+def _is_bus(leg: Leg) -> bool:
+    return leg.product.upper() in ("BUS", "SEV") or bool(re.match(r"(bus|sev|ev)\b", leg.name, re.IGNORECASE))
+
+
 class _TrainLeg:
     """Eine Zugfahrt mit ihren historischen Reihen an Start- und Zielhalt."""
 
@@ -88,9 +93,13 @@ class _TrainLeg:
         self.leg = leg
         self.dep_off = (leg.dep.date() - start_day).days
         self.arr_off = (leg.arr.date() - start_day).days
+        self.proxy = ""
+        if _is_bus(leg):
+            # Ersatzbus "Bus RE19": die Zugdaten der Linie sagen über den Bus nichts
+            self._load(hist, None, None)
+            return
         a = hist.find_stop(leg.num, leg.line, "arrival", leg.arr, leg.to_name, leg.to_eva)
         d = hist.find_stop(leg.num, leg.line, "departure", leg.dep, leg.from_name, leg.from_eva)
-        self.proxy = ""
         self._load(hist, a, d)
         if not self.arr and not self.dep and leg.from_eva and leg.to_eva:
             # neuer Zug oder neue Zeiten (z. B. nach dem Fahrplanwechsel): den
