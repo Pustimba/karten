@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from . import bahnde, transitous
 from .history import History
 from .model import Leg
-from .score import Result, min_transfer, score
+from .score import MIN_DAYS, Result, min_transfer, score
 
 # Züge, die sich nicht mit einem DB-Sparpreis buchen lassen (FlixTrain, Nachtzüge
 # anderer Bahnen, ausländische Betreiber). Treffer im Namen oder Betreiber.
@@ -119,11 +119,39 @@ def via_suggestions(h: History, nav: Result) -> list[str]:
     return out
 
 
+# Ketten mit einem Umstieg, dessen Anschluss oft reißt, rücken in der
+# Rangfolge um so viel nach vorn (angezeigt wird weiter der echte Wert).
+# Sie haben einen zweiten, unabhängigen Auslöser: Fällt einer weg (Baustelle
+# vorbei, neuer Fahrplan mit mehr Puffer), bleibt der andere. Und "Anschluss
+# nicht erreichbar" ist eindeutiger als eine Verspätungsprognose.
+ANSCHLUSS_BONUS = 0.05
+ANSCHLUSS_MIN = 0.10
+
+
+def second_trigger(nav: Result) -> str:
+    """Bahnhof des wackligsten Anschlusses, wenn er in mindestens
+    ANSCHLUSS_MIN der Tage reißt, sonst ""."""
+    best = None
+    for c in nav.components:
+        m = re.match(r"Anschluss (.+) \((-?\d+) min\)$", c.label)
+        if m and c.p is not None and c.n >= MIN_DAYS and c.p >= ANSCHLUSS_MIN and (best is None or c.p > best[0]):
+            best = (c.p, m.group(1))
+    return best[1] if best else ""
+
+
+def rank_key(r: dict) -> float:
+    """Wert für die Rangfolge: echte Wahrscheinlichkeit plus Bonus für einen
+    wackligen Anschluss und für einen Bauhinweis von bahn.de."""
+    return (r["p_kombiniert"] + (ANSCHLUSS_BONUS if r.get("zweiter_ausloeser") else 0)
+            + (0.05 if r.get("baustelle") else 0))
+
+
 def result_dict(h: History, nav: Result, strict: Result, ermaessigung: str = "bc25",
                 link: str | None = None) -> dict:
     trains = [l for l in nav.legs if not l.walk]
     first, last = trains[0], trains[-1]
     return {
+        "zweiter_ausloeser": second_trigger(nav),
         "p_kombiniert": nav.p_kombiniert,
         "p_navigator": nav.p_unabhaengig,
         "fernverkehr": any(l.long_distance() for l in trains),
@@ -605,7 +633,7 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     # selbst ein Auslöser, am wahrscheinlichsten
     # zuerst Ketten durch eine Baustelle, die bahn.de noch nicht eingeplant hat
     results = sorted(found.values(), key=lambda r: (not any(not g["eingeplant"] for g in r.get("geplant") or []),
-                                                     -r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
+                                                     -rank_key(r),
                                                      r["preis"], r["ab"]))
     warnung = []
     if state["abbruch"]:
