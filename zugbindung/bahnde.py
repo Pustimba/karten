@@ -36,7 +36,7 @@ def fetch(vbid: str) -> dict:
         except Exception as e:
             last = e
             continue
-        if r.status_code == 200:
+        if 200 <= r.status_code < 300:
             return r.json()
         last = f"HTTP {r.status_code}: {r.text[:120]}"
     raise SystemExit(f"bahn.de hat die Verbindung nicht geliefert ({last}).")
@@ -143,8 +143,11 @@ class Client:
                 r = getattr(self._sess(), method)(API_BASE + path, **kw)
             except Exception as e:
                 raise Blocked(f"bahn.de nicht erreichbar ({e.__class__.__name__})")
-            if r.status_code == 200:
-                return r.json()
+            if 200 <= r.status_code < 300:   # die Fahrplansuche antwortet mit 201 Created
+                try:
+                    return r.json()
+                except Exception:
+                    raise Blocked(f"bahn.de hat eine unlesbare Antwort geschickt (HTTP {r.status_code}).")
             if r.status_code == 403:
                 self._prof += 1
                 self._session = None
