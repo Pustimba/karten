@@ -303,7 +303,7 @@ class Corridor:
         return out
 
 
-def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: int = 10,
+def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: int = 14,
                       umweg: float = 1.3, max_winkel: float = 180) -> dict:
     """Bahnhöfe vor dem Wunsch-Start und hinter dem Wunsch-Ziel, über die ein
     Ticket laufen kann, das die Wunschstrecke plausibel einschließt.
@@ -347,7 +347,7 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
     def level(before: bool):
         hub = cor.s_name if before else cor.e_name
         lo, hi = (15, 180) if before else (10, 150)
-        first = pick(h.connected(evas_of_city(hub), before, lo, hi), before)
+        first = pick(h.connected(evas_of_city(hub), before, lo, hi), before, budget=70)
         second = []
         # Stufe 2 über die am besten angebundenen Knoten aus Stufe 1
         for k in sorted(first, key=lambda x: -x["fahrten"])[:4]:
@@ -357,21 +357,36 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
             second += pick(cands, before, via=k["name"], base_minutes=k["minuten"], budget=20, via_km=k["km"],
                            via_c=k["_c"])
         merged, seen = [], []
-        for x in sorted(first, key=lambda x: -x["fahrten"] * min(x["minuten"], 90)) + \
+        for x in sorted(first, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)) + \
                  sorted(second, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)):
-            if x["minuten"] > 240 or any(cor.geo.km(x["_c"], o) < 12 for o in seen):
+            if x["minuten"] > 240 or any(cor.geo.km(x["_c"], o) < 5 for o in seen):
                 continue   # Nachbarorte zusammenfassen
             seen.append(x["_c"])
             merged.append(x)
-        # direkt angebundene und mit Umstieg abwechselnd, damit beide sichtbar sind
-        d = [x for x in merged if not x["ueber"]]
-        u = [x for x in merged if x["ueber"]]
+        # Vielfalt: Orte nach Himmelsrichtung (vom Wunschort aus, 45°-Sektoren)
+        # gruppieren und reihum je Sektor den besten nehmen, dort abwechselnd
+        # direkt angebunden und mit Umstieg. So stehen Aachen und Stolberg,
+        # Bonn und Koblenz, Düsseldorf und Duisburg nebeneinander zur Wahl.
+        center = cor.cs if before else cor.ce
+        sectors: dict[int, list] = {}
+        for x in merged:
+            sectors.setdefault(int(cor.geo.bearing(center, x["_c"]) // 45), []).append(x)
+        for k in sectors:
+            d = [x for x in sectors[k] if not x["ueber"]]
+            u = [x for x in sectors[k] if x["ueber"]]
+            mixed = []
+            while d or u:
+                if d:
+                    mixed.append(d.pop(0))
+                if u:
+                    mixed.append(u.pop(0))
+            sectors[k] = mixed
+        order = sorted(sectors, key=lambda k: -len(sectors[k]))
         out = []
-        while (d or u) and len(out) < limit:
-            if d:
-                out.append(d.pop(0))
-            if u and len(out) < limit:
-                out.append(u.pop(0))
+        while len(out) < limit and any(sectors[k] for k in order):
+            for k in order:
+                if sectors[k] and len(out) < limit:
+                    out.append(sectors[k].pop(0))
         for x in out:
             x.pop("_c")
         return out

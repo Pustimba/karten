@@ -70,3 +70,11 @@ def angle(frm: tuple[float, float], to: tuple[float, float], frm2: tuple[float, 
     if n == 0:
         return 0.0
     return math.degrees(math.acos(max(-1.0, min(1.0, (x1 * x2 + y1 * y2) / n))))
+
+
+def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Himmelsrichtung von a nach b in Grad (0 = Norden, 90 = Osten)."""
+    lat0 = math.radians((a[0] + b[0]) / 2)
+    dx = (b[1] - a[1]) * math.cos(lat0)
+    dy = b[0] - a[0]
+    return math.degrees(math.atan2(dx, dy)) % 360
