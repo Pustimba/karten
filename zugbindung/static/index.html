@@ -661,7 +661,8 @@ function card(r, i) {
     <div>
       ${r.titel ? `<div class="meta" style="margin-bottom:2px">${esc(r.titel)}</div>` : ""}
       ${r.fernverkehr === false ? `<div class="err" style="margin:0 0 6px">Nur Nahverkehr: Das wäre ein Nahverkehrsticket. Nach aufgehobener Zugbindung gilt es nur für Nahverkehrszüge, für ICE oder IC wertlos.</div>` : ""}
-      ${r.geplant && r.geplant.length ? `<div class="badge plan">🚧 fährt durch geplante Baustelle: ${esc(r.geplant.join(", "))}</div> ` : ""}
+      ${(r.geplant || []).filter((g) => !g.eingeplant).map((g) => `<div class="badge plan" title="Auf dem Baustellenabschnitt fährt laut bahn.de noch der normale Zug, und bahn.de meldet keine Bauarbeiten. Wird der Baufahrplan später eingespielt, fällt er weg: dann entfällt die Zugbindung.">🚧 Baustelle „${esc(g.name)}“ noch nicht im Fahrplan</div> `).join("")}
+      ${(r.geplant || []).filter((g) => g.eingeplant).map((g) => `<div class="badge" title="Auf dem Abschnitt fährt bereits ein Bus oder Ersatzverkehr, oder bahn.de meldet Bauarbeiten. Die Baustelle steht schon im Fahrplan und hebt die Zugbindung deshalb nicht mehr auf.">Baustelle „${esc(g.name)}“ bereits eingeplant</div> `).join("")}
       ${r.baustelle ? `<div class="badge" title="${esc((r.hinweise || []).join(" · "))}">⚠ bahn.de meldet Bauarbeiten oder Änderungen auf dieser Verbindung: Chance auf spätere Fahrplanänderung</div>` : ""}
       ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}</div>` : ""}
       <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
@@ -703,7 +704,7 @@ function renderResults(kind, res) {
   const sorted = () => {
     const by = $("#sort-" + kind)?.value || "komb", min = +($("#min-" + kind)?.value || 0);
     const day = $("#day-" + kind)?.value || "", variant = $("#var-" + kind)?.value || "";
-    const f = { komb: (r) => (r.geplant && r.geplant.length ? -10 : 0) - (r.p_kombiniert ?? r.p_navigator) - (r.baustelle ? 0.05 : 0), preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
+    const f = { komb: (r) => ((r.geplant || []).some((g) => !g.eingeplant) ? -10 : 0) - (r.p_kombiniert ?? r.p_navigator) - (r.baustelle ? 0.05 : 0), preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
     return list.filter((r) => r.fehler || ((r.p_kombiniert ?? r.p_navigator) >= min && (!day || r.ab.slice(0, 10) === day)
       && (!variant || `${r.ticket_von} → ${r.ticket_nach}` === variant)))
       .sort((a, b) => (f(a) > f(b)) - (f(a) < f(b)) || (b.p_navigator - a.p_navigator));

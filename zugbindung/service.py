@@ -234,10 +234,20 @@ def _norm_station(x: str) -> str:
     return re.sub(r"[^a-z0-9äöüß]", "", x)
 
 
-def construction_hits(legs: list[Leg], d: date, baustellen: list[dict]) -> list[str]:
-    """Namen der eingetragenen Baustellen, die die Kette an diesem Tag
-    befährt: eine Teilstrecke hält an mindestens zwei der Baustellen-Bahnhöfe
-    (bei nur einem eingetragenen Bahnhof: an diesem)."""
+SEV = re.compile(r"\bbus\b|\bsev\b|ersatzverkehr|schienenersatz|^bsv|^bus", re.IGNORECASE)
+
+
+def construction_hits(legs: list[Leg], d: date, baustellen: list[dict], notices: list[str] = ()) -> list[dict]:
+    """Eingetragene Baustellen, die die Kette an diesem Tag befährt: eine
+    Teilstrecke hält an mindestens zwei der Baustellen-Bahnhöfe (bei nur einem
+    eingetragenen Bahnhof: an diesem).
+
+    Je Treffer: {"name", "eingeplant"}. eingeplant=True heißt, bahn.de hat die
+    Baustelle schon im Fahrplan: auf dem Abschnitt fährt ein Bus bzw.
+    Ersatzverkehr, oder bahn.de meldet zur Verbindung Bauarbeiten. Dann bringt
+    sie nichts mehr, denn die Zugbindung entfällt nur bei einer Änderung nach
+    der Buchung. eingeplant=False: dort fährt laut bahn.de der normale Zug."""
+    from .bahnde import BAU
     hits = []
     for b in baustellen or []:
         try:
@@ -259,7 +269,9 @@ def construction_hits(legs: list[Leg], d: date, baustellen: list[dict]) -> list[
                 if cands:
                     matched.add(max(cands, key=len))
             if len(matched) >= need:
-                hits.append(b.get("name") or ", ".join(b.get("stationen")))
+                bus = l.product.upper() == "BUS" or bool(SEV.search(f"{l.name} {l.operator}"))
+                hits.append({"name": b.get("name") or ", ".join(b.get("stationen")),
+                             "eingeplant": bus or any(BAU.search(t) for t in notices)})
                 break
     return hits
 
@@ -524,7 +536,8 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
 
     # Baustellenhinweis als Bonus: dort ist eine spätere Fahrplanänderung,
     # selbst ein Auslöser, am wahrscheinlichsten
-    results = sorted(found.values(), key=lambda r: (not r.get("geplant"),
+    # zuerst Ketten durch eine Baustelle, die bahn.de noch nicht eingeplant hat
+    results = sorted(found.values(), key=lambda r: (not any(not g["eingeplant"] for g in r.get("geplant") or []),
                                                      -r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
                                                      r["preis"], r["ab"]))
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
@@ -598,8 +611,8 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             nav = score(legs, h, days_hist, navigator_buffer=p.navigator_puffer)
             strict = score(legs, h, days_hist, navigator_buffer=0)
             r = result_dict(h, nav, strict, p.ermaessigung)
-            geplant = construction_hits(legs, d, p.baustellen)
             hinweise = bahnde.notices(v)
+            geplant = construction_hits(legs, d, p.baustellen, hinweise)
             r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "",
                      hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise), geplant=geplant)
             if via and via["name"] not in r["zwischenhalte"]:
