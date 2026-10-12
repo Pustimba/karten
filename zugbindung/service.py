@@ -257,11 +257,12 @@ class Corridor:
     """Geometrie der Wunschstrecke S → E und Plausibilität von Ticket-Enden.
 
     Ein Ticket-Start X ist plausibel, wenn der Weg X → S → E höchstens `umweg`
-    (30 %) länger ist als die Luftlinie X → E und die Richtung X → S höchstens
-    `max_winkel` Grad von S → E abweicht. Für ein Ticket-Ziel Y entsprechend
-    mit S → E → Y."""
+    (30 %) länger ist als die Luftlinie X → E. Für ein Ticket-Ziel Y
+    entsprechend mit S → E → Y. Lage und Richtung spielen sonst keine Rolle
+    (Potsdam und Bonn sind für Berlin → Köln plausibel); max_winkel ist
+    standardmäßig aus."""
 
-    def __init__(self, h: History, von: str, nach: str, umweg: float = 1.3, max_winkel: float = 75):
+    def __init__(self, h: History, von: str, nach: str, umweg: float = 1.3, max_winkel: float = 180):
         from . import geo
         self.geo = geo
         s_hit, e_hit = h.station_by_name(von), h.station_by_name(nach)
@@ -289,8 +290,10 @@ class Corridor:
             ang = geo.angle(self.cs, self.ce, self.ce, c)
         ratio = (d_near + self.d_se) / d_far if d_far else 9
         out = {"km": round(d_near), "umweg": round((ratio - 1) * 100), "winkel": round(ang), "_c": c}
-        if d_far <= self.d_se or ratio > self.umweg:
-            out.update(ok=False, grund=f"{out['umweg']} % Umweg" if d_far > self.d_se else "liegt auf der falschen Seite")
+        # allein der Umweg zählt: Potsdam → Berlin → Köln (12 %) oder
+        # Berlin → Köln → Bonn (5 %) sind plausibel, Rostock → Berlin → Köln (35 %) nicht
+        if ratio > self.umweg:
+            out.update(ok=False, grund=f"{out['umweg']} % Umweg")
         elif ang > self.max_winkel:
             out.update(ok=False, grund=f"falsche Richtung ({out['winkel']}°)")
         elif minutes is not None and d_near > 10 + minutes * 3.5:
@@ -301,7 +304,7 @@ class Corridor:
 
 
 def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: int = 10,
-                      umweg: float = 1.3, max_winkel: float = 75) -> dict:
+                      umweg: float = 1.3, max_winkel: float = 180) -> dict:
     """Bahnhöfe vor dem Wunsch-Start und hinter dem Wunsch-Ziel, über die ein
     Ticket laufen kann, das die Wunschstrecke plausibel einschließt.
 
@@ -318,7 +321,8 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
         # Berlin Hbf oben) fehlen in den Daten teilweise
         return [e for e, n in st.items() if _city(n) == _city(name)]
 
-    def pick(cands, before: bool, via: str = "", base_minutes: float = 0, budget: int = 45, via_km: int = 0):
+    def pick(cands, before: bool, via: str = "", base_minutes: float = 0, budget: int = 45, via_km: int = 0,
+             via_c=None):
         out, looked = [], 0
         # häufig angefahren und weiter weg zuerst: Endpunkte von Regionallinien
         # vor deren nahen Zwischenhalten
@@ -330,6 +334,12 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
             r = cor.check(name, before, minutes=total)
             if not r.get("ok") or r["km"] < 15 or r["km"] > 180 or (via and r["km"] < via_km + 10):
                 continue   # mit Umstieg nur, wenn der Ort weiter weg liegt als sein Knoten
+            if via_c is not None:
+                d_via = cor.geo.km(r["_c"], via_c)
+                # näher am Knoten als an der Wunschstadt (sonst fährt der Zug
+                # nur durch sie hindurch), und die Entfernung passt zur Fahrzeit
+                if d_via >= r["km"] or d_via > 10 + mins * 2.5:
+                    continue
             out.append({"name": name, "km": r["km"], "minuten": round(total), "fahrten": rides,
                         "umweg": r["umweg"], "winkel": r["winkel"], "ueber": via, "_c": r["_c"]})
         return out
@@ -344,7 +354,8 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
             progress(f"… Anschlüsse über {k['name']}")
             cands = h.connected(h.evas_named(k["name"]), before, 15, 120, min_rides=3)
             cands = [c for c in cands if c[1] != hub]
-            second += pick(cands, before, via=k["name"], base_minutes=k["minuten"], budget=20, via_km=k["km"])
+            second += pick(cands, before, via=k["name"], base_minutes=k["minuten"], budget=20, via_km=k["km"],
+                           via_c=k["_c"])
         merged, seen = [], []
         for x in sorted(first, key=lambda x: -x["fahrten"] * min(x["minuten"], 90)) + \
                  sorted(second, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)):
