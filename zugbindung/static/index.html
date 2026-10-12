@@ -580,6 +580,7 @@ $("#verl").addEventListener("change", updateEstimate);
 
 // ---------------- Formular merken
 function saveForm() {
+  $("#stale-suche")?.classList.remove("hidden");
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
     erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
     dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
@@ -711,6 +712,8 @@ function renderResults(kind, res) {
        <select id="min-${kind}"><option value="0" selected>alle</option><option value="0.5">ab 50 %</option><option value="0.75">ab 75 %</option></select>
        ${res.varianten && res.varianten.length > 1 ? `<select id="var-${kind}"><option value="">alle Tickets</option>${res.varianten.map((v) => `<option>${esc(v)}</option>`).join("")}</select>` : ""}
        ${res.tage ? `<select id="day-${kind}"><option value="">alle Tage</option>${res.tage.filter((t) => t.bis_max_preis).map((t) => `<option value="${t.datum}">${dm(t.datum + "T00")}</option>`).join("")}</select>` : ""}</div></div>
+       ${res.tage && res.tage.length ? `<div class="sub" style="margin:4px 0 0">Gesucht für ${res.tage.length} Reisetag${res.tage.length > 1 ? "e" : ""}: ${res.tage.map((t) => dm(t.datum + "T00")).join(", ")} · Höchstpreis ${String(res.max_preis).replace(".", ",")} €</div>` : ""}
+       <div class="err hidden" id="stale-${kind}">Du hast die Suche seit diesem Ergebnis geändert. Die Liste stammt noch aus der vorherigen Suche; für die neuen Einstellungen bitte erneut auf „Suchen“ klicken.</div>
        ${(res.warnung || []).map((w) => `<div class="err">${esc(w)}</div>`).join("")}
        ${res.tage ? dayOverview(res) : ""}`
     : "";
