@@ -256,6 +256,7 @@ class BestDaysParams:
     knoten: int = 2                 # so viele Knotenbahnhöfe als Zwischenhalt erzwingen (0 = aus)
     baustellen: list[dict] = field(default_factory=list)  # {"name", "stationen": [...], "von", "bis"}
     knoten_seiten: int = 4          # Ergebnisseiten je erzwungenem Zwischenhalt
+    zwischenhalte: list[str] = field(default_factory=list)   # eigene erzwungene Zwischenhalte, "A + B" = beide
     verlaengern: int = 4            # so viele wacklige Fernzüge mit Vor- und Nachlauf verlängern (0 = aus)
     verl_seiten: int = 3            # Ergebnisseiten je Verlängerung
 
@@ -521,7 +522,7 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     ziele = [wunsch_nach] + [_resolve(client, n, "") for n in p.ziele if n.strip()]
     pairs = [(a, b) for a in starts for b in ziele]
     dates = travel_dates(p)
-    progress(f"Wunschstrecke {wunsch_von['name']} → {wunsch_nach['name']}, {len(pairs)} Ticket-Varianten")
+    progress(f"Wunschstrecke {wunsch_von['name']} → {wunsch_nach['name']}, {len(pairs)} Ticket-Variante{'n' if len(pairs) != 1 else ''}")
     days_hist = h.days()
     found: dict[tuple, dict] = {}
     per_day: dict[str, dict] = {}
@@ -575,23 +576,38 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     active = [b for b in p.baustellen if b.get("stationen") and any(
         b.get("von", "") <= d.isoformat() <= b.get("bis", "") for d in dates)]
     bau_vias = [(b["stationen"][len(b["stationen"]) // 2], b["von"], b["bis"]) for b in active]
-    if (hubs or bau_vias) and not state["abbruch"]:
+    # eigene Zwischenhalte: "Stendal" = eine Abfrage über Stendal,
+    # "Stendal + Wolfsburg Hbf" = eine Abfrage über beide (bahn.de erlaubt bis zu zwei)
+    own = [[n.strip() for n in e.split("+") if n.strip()][:2] for e in p.zwischenhalte if e.strip()]
+    if (hubs or bau_vias or own) and not state["abbruch"]:
         progress("Runde 2, erzwungene Zwischenhalte: "
-                 + ", ".join([f"{n} ({pct:.0%} verpasst)" for n, pct in hubs] + [f"{n} (Baustelle)" for n, _, _ in bau_vias]))
-        vias = []   # (Ort, gültig von, gültig bis); Knoten gelten immer
-        for name, von, bis in [(n, "", "9999") for n, _ in hubs] + bau_vias:
-            try:
-                hit = client.locations(name)
-            except bahnde.Blocked as e:
-                progress(f"Zwischenhalt {name} nicht gefunden: {e}")
-                continue
-            if hit and hit[0]["id"] not in [v[0]["id"] for v in vias]:
-                vias.append((hit[0], von, bis))
+                 + ", ".join([" + ".join(e) + " (eigener)" for e in own]
+                             + [f"{n} ({pct:.0%} verpasst)" for n, pct in hubs]
+                             + [f"{n} (Baustelle)" for n, _, _ in bau_vias]))
+        vias = []   # ([Orte], gültig von, gültig bis); Knoten und eigene gelten immer
+        for names, von, bis in ([(e, "", "9999") for e in own] + [([n], "", "9999") for n, _ in hubs]
+                                + [([n], v, b) for n, v, b in bau_vias]):
+            hits = []
+            for name in names:
+                try:
+                    hit = client.locations(name)
+                except bahnde.Blocked as e:
+                    hit = []
+                    progress(f"Zwischenhalt {name}: {e}")
+                if hit:
+                    hits.append(hit[0])
+                else:
+                    progress(f"Zwischenhalt {name} bei bahn.de nicht gefunden, übersprungen.")
+            key = [h["id"] for h in hits]
+            if hits and key not in [[h["id"] for h in v[0]] for v in vias]:
+                vias.append((hits, von, bis))
         for d in dates:
             for a, b in pairs:
-                for via, von, bis in vias:
-                    if von <= d.isoformat() <= bis:
-                        run(d, a, b, via=via, pages=p.knoten_seiten)
+                for hits, von, bis in vias:
+                    # ein Zwischenhalt am Ticket-Start oder -Ziel ergibt keine neue Kette
+                    vl = [v for v in hits if v["id"] not in (a["id"], b["id"])]
+                    if vl and von <= d.isoformat() <= bis:
+                        run(d, a, b, via_list=vl, pages=p.knoten_seiten)
             day_done(d, 0)
 
     # Runde 3: Die wackligsten Fernzüge (oft ein einzelner ICE, der fast

@@ -191,6 +191,7 @@ class App:
             starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x],
             knoten=int(params.get("knoten") if params.get("knoten") not in (None, "") else 2),
             verlaengern=int(params.get("verlaengern") if params.get("verlaengern") not in (None, "") else 4),
+            zwischenhalte=[x for x in params.get("zwischenhalte") or [] if str(x).strip()],
             baustellen=[b for b in params.get("baustellen") or [] if b.get("stationen") and b.get("von") and b.get("bis")])
         dates = service.travel_dates(p)
         if not dates:
@@ -198,9 +199,9 @@ class App:
         if len(dates) > 62:
             raise RuntimeError("Bitte höchstens 62 Reisetage auf einmal abfragen.")
         pairs = (1 + len(p.starts)) * (1 + len(p.ziele))
-        runde12 = len(dates) * (2 if (p.knoten or p.baustellen) else 1)
+        runde12 = len(dates) * (2 if (p.knoten or p.baustellen or p.zwischenhalte) else 1)
         job.total, job.phase = runde12 + (p.verlaengern if pairs > 1 else 0), "bahn.de abfragen"
-        if pairs * len(dates) * (1 + p.knoten) > 900:
+        if pairs * len(dates) * (1 + p.knoten + len(p.zwischenhalte)) > 900:
             raise RuntimeError(f"{pairs} Ticket-Varianten × {len(dates)} Tage sind zu viele Abfragen. "
                                "Bitte weniger Bahnhöfe oder einen kürzeren Zeitraum wählen.")
 

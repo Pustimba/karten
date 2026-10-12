@@ -198,11 +198,16 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
             <div id="bau-list"></div>
             <div class="grid" style="margin-top:10px">
               <div><label for="bau-name">Bezeichnung</label><input id="bau-name" placeholder="z. B. Sperrung Lübbenau bis Cottbus"></div>
-              <div><label for="bau-st">Betroffene Bahnhöfe (mit Komma)</label><input id="bau-st" placeholder="z. B. Lübbenau, Vetschau, Cottbus"></div>
+              <div><label for="bau-st">Betroffene Bahnhöfe (mit Komma)</label><input id="bau-st" placeholder="z. B. Lübbenau, Vetschau, Cottbus" title="Bahnhöfe, an denen die betroffenen Züge halten; mindestens zwei davon müssen Halte desselben Zuges sein."></div>
               <div><label>Zeitraum der Baustelle</label><div class="row"><input type="date" id="bau-von" style="flex:1"><span class="sub" style="margin:0">bis</span><input type="date" id="bau-bis" style="flex:1"></div></div>
               <div style="align-self:end"><button type="button" class="btn ghost" id="bau-add">Baustelle hinzufügen</button></div>
             </div>
           </details>
+          <div class="mode-preis full">
+            <label for="vias">Zwischenhalte erzwingen <span class="lblsub">(optional, mit Komma trennen)</span></label>
+            <input id="vias" placeholder="z. B. Stendal, Wolfsburg Hbf + Hannover Hbf">
+            <div class="ac-hint">Für jeden Eintrag fragt die App bahn.de zusätzlich mit diesem Zwischenhalt ab, für jede Ticket-Variante und jeden Tag. „A + B“ erzwingt beide in einer Abfrage. So erscheinen Ketten über einen bestimmten Bahnhof, etwa über einen ICE-Halt, dessen Wegfall noch offen ist.</div>
+          </div>
           <div class="mode-preis">
             <label>Zeitraum</label>
             <div class="row"><input type="date" id="dvon" style="flex:1"><span class="sub" style="margin:0">bis</span><input type="date" id="dbis" style="flex:1"></div>
@@ -561,11 +566,12 @@ function reiseTage() {
   }
   return out;
 }
+function viaList() { return ($("#vias")?.value || "").split(",").map((x) => x.trim()).filter(Boolean); }
 function updateEstimate() {
   if (state.mode === "preis") {
     const n = reiseTage().length, v = (1 + onEnds("starts").length) * (1 + onEnds("ziele").length);
     $("#dhint").textContent = n ? `${n} Reisetage × ${v} Ticket-Variante${v > 1 ? "n" : ""}` : "Zeitraum prüfen";
-    const kn = +($("#knoten")?.value || 0) + state.baustellen.filter((b) => b.on).length, f = 1 + kn * 0.4;
+    const kn = +($("#knoten")?.value || 0) + state.baustellen.filter((b) => b.on).length + viaList().length, f = 1 + kn * 0.4;
     const vl = v > 1 ? +($("#verl")?.value || 0) * (v - 1) * 2 : 0;   // Abfragen der Runde 3
     const lo = Math.max(1, Math.round((n * v * f + vl) * 12 / 60)), hi = Math.max(2, Math.round((n * v * f + vl) * 30 / 60));
     $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v * (1 + kn) > 900 ? " Zu viele Abfragen: bitte weniger Bahnhöfe, Knoten oder Tage." : "") : "";
@@ -577,6 +583,7 @@ function updateEstimate() {
 $("#rwd").addEventListener("change", updateEstimate);
 $("#knoten").addEventListener("change", updateEstimate);
 $("#verl").addEventListener("change", updateEstimate);
+$("#vias").addEventListener("input", updateEstimate);
 
 // ---------------- Formular merken
 function saveForm() {
@@ -584,13 +591,13 @@ function saveForm() {
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
     erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
     dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
-    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value, verl: $("#verl").value, baustellen: state.baustellen });
+    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value, verl: $("#verl").value, vias: $("#vias").value, baustellen: state.baustellen });
 }
 function loadForm() {
   const f = store.get("form", null);
   const today = new Date().toISOString().slice(0, 10);
   if (f) {
-    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten", "verl"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
+    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten", "verl", "vias"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
     $$("#rwd input").forEach((c) => c.checked = (f.rwd || []).includes(c.value));
     state.starts = f.starts || []; state.ziele = f.ziele || []; state.baustellen = f.baustellen || [];
     state.stops = f.stops || state.stops;
@@ -619,6 +626,7 @@ $("#f-suche").onsubmit = async (e) => {
       datum_von: $("#dvon").value, datum_bis: $("#dbis").value, wochentage: $$("#rwd input:checked").map((c) => +c.value),
       ab: $("#ab").value, bis: $("#bis").value, max_preis: $("#maxp").value, ermaessigung: $("#erm").value, navigator_puffer: $("#navp").value,
       starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value, verlaengern: $("#verl").value,
+      zwischenhalte: viaList(),
       baustellen: state.baustellen.filter((b) => b.on).map(({ name, stationen, von, bis }) => ({ name, stationen, von, bis })) };
     $("#r-suche").innerHTML = "";
     try { const { job } = await api("/api/bestetage", body); follow(job, $("#p-suche"), "bestetage"); }
