@@ -247,6 +247,10 @@ def travel_dates(p: BestDaysParams) -> list[date]:
     return out
 
 
+# pauschale Wahrscheinlichkeit, dass ein zusätzlicher Umstieg selbst reißt
+UMSTIEG_RISIKO = 0.08
+
+
 def _city(n: str) -> str:
     # "Frankfurt (Main) Hbf" -> "frankfurt(main)", "Berlin-Spandau" -> "berlin"
     m = re.match(r"^([^\W\d_]+)(\s*\([^)]*\))?", n.strip())
@@ -322,11 +326,11 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
         return [e for e, n in st.items() if _city(n) == _city(name)]
 
     def pick(cands, before: bool, via: str = "", base_minutes: float = 0, budget: int = 45, via_km: int = 0,
-             via_c=None):
+             via_c=None, via_risk: float = 0.0):
         out, looked = [], 0
         # häufig angefahren und weiter weg zuerst: Endpunkte von Regionallinien
         # vor deren nahen Zwischenhalten
-        for eva, name, rides, mins in sorted(cands, key=lambda c: -c[2] * min(c[3], 60)):
+        for eva, name, rides, mins, late, canc in sorted(cands, key=lambda c: -c[2] * min(c[3], 60)):
             if _city(name) in cor.skip or looked >= budget:
                 continue
             looked += 1
@@ -340,8 +344,14 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
                 # nur durch sie hindurch), und die Entfernung passt zur Fahrzeit
                 if d_via >= r["km"] or d_via > 10 + mins * 2.5:
                     continue
+            # Zusatzrisiko dieser Etappe: verspätet (>= 5 min) oder ausgefallen,
+            # bei einem Umstieg kombiniert mit der Etappe zum Knoten plus einem
+            # pauschalen Risiko für den Umstieg selbst
+            leg = 1 - (1 - late) * (1 - canc)
+            risk = 1 - (1 - leg) * (1 - via_risk) * (1 - UMSTIEG_RISIKO) if via else leg
             out.append({"name": name, "km": r["km"], "minuten": round(total), "fahrten": rides,
-                        "umweg": r["umweg"], "winkel": r["winkel"], "ueber": via, "_c": r["_c"]})
+                        "umweg": r["umweg"], "winkel": r["winkel"], "ueber": via, "risiko": round(risk, 3),
+                        "_c": r["_c"]})
         return out
 
     def level(before: bool):
@@ -355,7 +365,7 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
             cands = h.connected(h.evas_named(k["name"]), before, 15, 120, min_rides=3)
             cands = [c for c in cands if c[1] != hub]
             second += pick(cands, before, via=k["name"], base_minutes=k["minuten"], budget=20, via_km=k["km"],
-                           via_c=k["_c"])
+                           via_c=k["_c"], via_risk=k["risiko"])
         merged, seen = [], []
         for x in sorted(first, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)) + \
                  sorted(second, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)):
@@ -387,6 +397,11 @@ def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: i
             for k in order:
                 if sectors[k] and len(out) < limit:
                     out.append(sectors[k].pop(0))
+        # die vielfältige Auswahl ordnen: wackligste zuerst, sehr weite Orte
+        # etwas schwächer (sie treiben den Preis über die Grenze)
+        for x in out:
+            x["wertung"] = round(x["risiko"] * min(1.0, 90 / max(x["km"], 1)), 3)
+        out.sort(key=lambda x: -x["wertung"])
         for x in out:
             x.pop("_c")
         return out

@@ -143,32 +143,42 @@ class History:
         return [eva for eva, st in self.stations().items() if st == name]
 
     def connected(self, evas: list[str], before: bool, min_minutes: int, max_minutes: int,
-                  days: int = 10, min_rides: int = 5) -> list[tuple[str, str, int, float]]:
+                  days: int = 10, min_rides: int = 5) -> list[tuple]:
         """Bahnhöfe, die mit direkten Zügen vor (before=True) bzw. nach einem der
-        evas erreicht werden, mit Anzahl Fahrten und typischer Fahrzeit.
-        Ergebnis: (eva, name, fahrten, minuten), häufigste zuerst."""
+        evas erreicht werden, mit Anzahl Fahrten, typischer Fahrzeit und der
+        Unzuverlässigkeit dieser Etappe (gemessen am Ankunftshalt: vor dem
+        Knoten am Knoten, nach dem Knoten am anderen Bahnhof).
+        Ergebnis: (eva, name, fahrten, minuten, anteil >= 5 min verspätet,
+        anteil ausgefallen), häufigste zuerst."""
         since = self.last_day - timedelta(days=days)
         ph = ",".join("?" * len(evas))
+        arr = ("date_diff('minute', arrival_planned_time, arrival_change_time) AS dl, "
+               "coalesce(is_canceled, false) AS cx")
+        none = "NULL::INTEGER AS dl, NULL::BOOLEAN AS cx"
         if before:
             hub_col, other_col, cond = "arrival_planned_time", "departure_planned_time", "o.t < h.t"
             diff = "date_diff('minute', o.t, h.t)"
+            h_extra, o_extra, side = arr, none, "h"
         else:
             hub_col, other_col, cond = "departure_planned_time", "arrival_planned_time", "o.t > h.t"
             diff = "date_diff('minute', h.t, o.t)"
+            h_extra, o_extra, side = none, arr, "o"
         rows = self.con.execute(f"""
             WITH h AS (
-                SELECT train_line_ride_id AS rid, {hub_col} AS t FROM delays
+                SELECT train_line_ride_id AS rid, {hub_col} AS t, {h_extra} FROM delays
                 WHERE eva IN ({ph}) AND {hub_col} >= ?
                   -- S-Bahn, Bus und Tram bringen nur Vororte; gesucht sind Regional- und Fernzüge
                   AND coalesce(train_type, '') NOT IN ('S', 'Bus', 'BUS', 'STR', 'U', 'Tram', 'FLX')
             ), o AS (
-                SELECT eva, station_name, train_line_ride_id AS rid, {other_col} AS t FROM delays
+                SELECT eva, station_name, train_line_ride_id AS rid, {other_col} AS t, {o_extra} FROM delays
                 WHERE {other_col} >= ? AND eva NOT IN ({ph})
             )
-            SELECT o.eva, any_value(o.station_name), count(DISTINCT o.rid), median({diff})
+            SELECT o.eva, any_value(o.station_name), count(DISTINCT o.rid), median({diff}),
+                   avg(CASE WHEN {side}.dl >= 5 AND NOT {side}.cx THEN 1.0 ELSE 0.0 END),
+                   avg(CASE WHEN {side}.cx THEN 1.0 ELSE 0.0 END)
             FROM h JOIN o USING (rid)
             WHERE {cond} AND {diff} BETWEEN ? AND ?
             GROUP BY 1 HAVING count(DISTINCT o.rid) >= ?
             ORDER BY 3 DESC LIMIT 200""",
             [*evas, since, since - timedelta(days=1), *evas, min_minutes, max_minutes, min_rides]).fetchall()
-        return [(e, n, int(r), float(m)) for e, n, r, m in rows]
+        return [(e, n, int(r), float(m), float(late or 0), float(cx or 0)) for e, n, r, m, late, cx in rows]

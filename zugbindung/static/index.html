@@ -451,7 +451,7 @@ $$("#mode button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
 function renderEnds() {
   for (const k of ["starts", "ziele"]) {
     $("#" + k).innerHTML = state[k].map((x, i) => `<span class="chip ${x.on ? "" : "off"}" title="${x.on ? "wird gesucht, klicken zum Abwählen" : "abgewählt, klicken zum Auswählen"}">
-      <span class="nm" data-k="${k}" data-i="${i}" title="${esc(x.warn || (x.ueber ? "mit Umstieg in " + x.ueber : ""))}">${x.warn ? "⚠ " : x.on ? "✓ " : ""}${esc(x.name)}${x.km ? `<small>${x.km} km${x.ueber ? " · über " + esc(x.ueber) : ""}</small>` : ""}${x.warn ? `<small>${esc(x.warn)}</small>` : ""}</span>
+      <span class="nm" data-k="${k}" data-i="${i}" title="${esc(x.warn || ((x.ueber ? "mit Umstieg in " + x.ueber + ". " : "") + (x.risiko != null ? "Anteil der Fahrten auf der zusätzlichen Etappe, die mindestens 5 Minuten zu spät kommen oder ausfallen" + (x.ueber ? ", inklusive Umstieg" : "") : "")))}">${x.warn ? "⚠ " : x.on ? "✓ " : ""}${esc(x.name)}${x.km ? `<small>${x.km} km${x.ueber ? " · über " + esc(x.ueber) : ""}${x.risiko != null ? " · " + Math.round(x.risiko * 100) + " % unpünktlich" : ""}</small>` : ""}${x.warn ? `<small>${esc(x.warn)}</small>` : ""}</span>
       <button type="button" data-k="${k}" data-del="${i}" title="entfernen">×</button></span>`).join("")
       || `<span class="sub" style="margin:0;font-size:13px">keine; nur deine Strecke selbst wird gesucht</span>`;
   }
@@ -476,10 +476,10 @@ $$("[data-add]").forEach((b) => b.onclick = () => { const inp = $(b.dataset.add 
 function applySuggestions(res) {
   for (const k of ["starts", "ziele"]) {
     const manual = state[k].filter((x) => x.manuell);
-    const sug = (res[k] || []).filter((x) => !manual.some((m) => m.name === x.name)).map((x, i) => ({ name: x.name, km: x.km, ueber: x.ueber, on: i < 2 }));
+    const sug = (res[k] || []).filter((x) => !manual.some((m) => m.name === x.name)).map((x, i) => ({ name: x.name, km: x.km, ueber: x.ueber, risiko: x.risiko, on: i < 2 }));
     state[k] = [...manual, ...sug];
   }
-  $("#vor-hint").textContent = `${res.starts.length} Starts und ${res.ziele.length} Ziele gefunden. Die ersten zwei sind ausgewählt; per Klick an- oder abwählen. Jede weitere Auswahl verlängert die Suche.`;
+  $("#vor-hint").textContent = `${res.starts.length} Starts und ${res.ziele.length} Ziele gefunden. Sortiert nach Störanfälligkeit der zusätzlichen Etappe; die zwei wackligsten sind ausgewählt. Per Klick an- oder abwählen, jede weitere Auswahl verlängert die Suche.`;
   renderEnds(); saveForm(); updateEstimate();
 }
 $("#go-vor").onclick = async () => {
