@@ -494,23 +494,41 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     days_hist = h.days()
     found: dict[tuple, dict] = {}
     per_day: dict[str, dict] = {}
+    state = {"fehler_folge": 0, "uebersprungen": 0, "abbruch": ""}
 
     def run(d, a, b, via=None, pages=None):
-        n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found, via=via, max_pages=pages)
+        if state["abbruch"]:
+            return
+        name = (f"{WD_NAMES[d.weekday()]} {d:%d.%m.} {a['name']} → {b['name']}"
+                + (f" über {via['name']}" if via else ""))
+        try:
+            n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found, via=via, max_pages=pages)
+        except bahnde.Unreachable as e:
+            # einzelne Variante überspringen; erst mehrere Ausfälle hintereinander beenden die Suche
+            state["fehler_folge"] += 1
+            state["uebersprungen"] += 1
+            progress(f"{name}: übersprungen, {e}")
+            if state["fehler_folge"] >= 3:
+                state["abbruch"] = f"{e} Die Suche wurde nach drei Ausfällen in Folge beendet."
+            return
+        except bahnde.Blocked as e:
+            state["abbruch"] = str(e)
+            progress(f"{name}: {e}")
+            return
+        state["fehler_folge"] = 0
         t = per_day.setdefault(d.isoformat(), {"datum": d.isoformat(), "verbindungen": 0, "bis_max_preis": 0,
                                                "guenstigster": None})
         t["verbindungen"] += n_all
         t["bis_max_preis"] += n_cheap
         if cheapest is not None and (t["guenstigster"] is None or cheapest < t["guenstigster"]):
             t["guenstigster"] = cheapest
-        msg = (f"{WD_NAMES[d.weekday()]} {d:%d.%m.} {a['name']} → {b['name']}"
-               + (f" über {via['name']}" if via else "") + f": {n_all} Verbindungen, {n_cheap} bis {eur(p.max_preis)}")
+        msg = f"{name}: {n_all} Verbindungen, {n_cheap} bis {eur(p.max_preis)}"
         progress(msg + (f", günstigste {eur(cheapest)}" if cheapest is not None else ""))
 
     for d in dates:
         for a, b in pairs:
             run(d, a, b)
-        day_done(d, per_day[d.isoformat()]["bis_max_preis"])
+        day_done(d, (per_day.get(d.isoformat()) or {}).get("bis_max_preis", 0))
 
     hubs = _pick_hubs(found.values(), p.knoten, exclude={_city(x["name"]) for x in starts + ziele}) \
         if p.knoten > 0 and found else []
@@ -519,12 +537,16 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     active = [b for b in p.baustellen if b.get("stationen") and any(
         b.get("von", "") <= d.isoformat() <= b.get("bis", "") for d in dates)]
     bau_vias = [(b["stationen"][len(b["stationen"]) // 2], b["von"], b["bis"]) for b in active]
-    if hubs or bau_vias:
+    if (hubs or bau_vias) and not state["abbruch"]:
         progress("Runde 2, erzwungene Zwischenhalte: "
                  + ", ".join([f"{n} ({pct:.0%} verpasst)" for n, pct in hubs] + [f"{n} (Baustelle)" for n, _, _ in bau_vias]))
         vias = []   # (Ort, gültig von, gültig bis); Knoten gelten immer
         for name, von, bis in [(n, "", "9999") for n, _ in hubs] + bau_vias:
-            hit = client.locations(name)
+            try:
+                hit = client.locations(name)
+            except bahnde.Blocked as e:
+                progress(f"Zwischenhalt {name} nicht gefunden: {e}")
+                continue
             if hit and hit[0]["id"] not in [v[0]["id"] for v in vias]:
                 vias.append((hit[0], von, bis))
         for d in dates:
@@ -540,7 +562,19 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     results = sorted(found.values(), key=lambda r: (not any(not g["eingeplant"] for g in r.get("geplant") or []),
                                                      -r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
                                                      r["preis"], r["ab"]))
+    warnung = []
+    if state["abbruch"]:
+        warnung.append(f"Suche vorzeitig beendet: {state['abbruch']} Angezeigt sind die bis dahin gefundenen "
+                       "Verbindungen.")
+    if state["uebersprungen"]:
+        n = state["uebersprungen"]
+        warnung.append(f"{n} {'Abfrage wurde' if n == 1 else 'Abfragen wurden'} übersprungen, weil bahn.de "
+                       "nicht antwortete (Details im Protokoll).")
+    if not found and not state["abbruch"] and per_day and not any(t["bis_max_preis"] for t in per_day.values()):
+        warnung.append(f"An keinem Tag gab es eine passende Verbindung bis {eur(p.max_preis)}. Sparpreise sind "
+                       "kurz vor der Reise meist teurer; ein Zeitraum einige Wochen in der Zukunft lohnt sich eher.")
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
+            "warnung": warnung,
             "ergebnisse": results, "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
             "max_preis": p.max_preis, "varianten": [f"{a['name']} → {b['name']}" for a, b in pairs]}
 

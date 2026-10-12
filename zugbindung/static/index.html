@@ -706,6 +706,7 @@ function renderResults(kind, res) {
        <select id="min-${kind}"><option value="0" selected>alle</option><option value="0.5">ab 50 %</option><option value="0.75">ab 75 %</option></select>
        ${res.varianten && res.varianten.length > 1 ? `<select id="var-${kind}"><option value="">alle Tickets</option>${res.varianten.map((v) => `<option>${esc(v)}</option>`).join("")}</select>` : ""}
        ${res.tage ? `<select id="day-${kind}"><option value="">alle Tage</option>${res.tage.filter((t) => t.bis_max_preis).map((t) => `<option value="${t.datum}">${dm(t.datum + "T00")}</option>`).join("")}</select>` : ""}</div></div>
+       ${(res.warnung || []).map((w) => `<div class="err">${esc(w)}</div>`).join("")}
        ${res.tage ? dayOverview(res) : ""}`
     : "";
   const sorted = () => {

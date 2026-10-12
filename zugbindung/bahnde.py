@@ -114,6 +114,17 @@ class Blocked(Exception):
     """bahn.de verweigert den Zugriff (403 oder anhaltend 429)."""
 
 
+class Unreachable(Blocked):
+    """bahn.de antwortet auch nach mehreren Versuchen nicht (Timeout, Verbindungsabbruch)."""
+
+
+RETRY_WAITS = (5, 15, 40)   # Sekunden Pause vor dem 2., 3. und 4. Versuch
+
+
+def _why(e: Exception) -> str:
+    return "Timeout" if "timeout" in f"{e.__class__.__name__} {e}".lower() else e.__class__.__name__
+
+
 class Client:
     """Kleiner, höflicher bahn.de-Client: eine Sitzung, Pausen zwischen den
     Anfragen, Profilwechsel bei 403, einmaliges Warten bei 429."""
@@ -134,6 +145,7 @@ class Client:
         import random
         import time
         tried_429 = False
+        net_errors = 0
         while True:
             wait = self.pause + random.uniform(0, 0.8) - (time.time() - self._last)
             if wait > 0:
@@ -142,7 +154,15 @@ class Client:
             try:
                 r = getattr(self._sess(), method)(API_BASE + path, **kw)
             except Exception as e:
-                raise Blocked(f"bahn.de nicht erreichbar ({e.__class__.__name__})")
+                # Timeouts und Abbrüche kommen von zu Hause gelegentlich vor:
+                # mit frischer Sitzung und wachsender Pause erneut versuchen
+                net_errors += 1
+                if net_errors > len(RETRY_WAITS):
+                    raise Unreachable(f"bahn.de nicht erreichbar ({_why(e)}), auch nach {len(RETRY_WAITS)} "
+                                      "weiteren Versuchen.")
+                self._session = None
+                time.sleep(RETRY_WAITS[net_errors - 1])
+                continue
             if 200 <= r.status_code < 300:   # die Fahrplansuche antwortet mit 201 Created
                 try:
                     return r.json()

@@ -471,6 +471,8 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 | `Kein Halt in 'cottbus' … gefunden` | wie oben: andere Schreibweise oder ID aus der ausgegebenen Liste verwenden |
 | Transitous antwortet mit 403 oder 429 | kurz warten; das Tool wiederholt Anfragen automatisch. Bei 429 `--raster 60` wählen |
 | `pruefe`: `bahn.de hat die Verbindung nicht geliefert (HTTP 403 …)` | Akamai blockiert den Zugriff. Von Cloud-Servern und VPNs passiert das oft, vom Heimanschluss selten. Später erneut versuchen oder VPN ausschalten |
+| `bahn.de nicht erreichbar (Timeout)` | die App versucht jede Abfrage bis zu viermal (Pausen 5, 15 und 40 s). Klappt es dann nicht, überspringt sie diese eine Ticket-Variante und sucht weiter. Erst nach drei Ausfällen in Folge beendet sie die Suche und zeigt die bis dahin gefundenen Verbindungen. Hilft meist: WLAN prüfen, VPN aus, später erneut suchen |
+| An keinem Tag eine Verbindung bis zum Höchstpreis | Sparpreise sind in den letzten Tagen vor der Fahrt fast immer ausverkauft. Einen Zeitraum einige Wochen in der Zukunft wählen |
 | `db-bauen` bricht mit Speicherfehler ab | `--prozesse 2` oder `--prozesse 1` |
 | `db-bauen` meldet `no space left on device` | ca. 10 GB freimachen; der Rohdaten-Ordner `../delay_bahn/data/raw_data` darf nach dem Bau gelöscht werden, wird beim nächsten Update aber neu geladen |
 | Sehr wenige Verbindungen bewertet | `--min-umstieg 3` oder `--alle-betreiber` testen, `--raster 20` setzen, Zeitfenster vergrößern |
