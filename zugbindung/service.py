@@ -225,7 +225,43 @@ class BestDaysParams:
     starts: list[str] = field(default_factory=list)   # Ticket darf hier früher beginnen
     ziele: list[str] = field(default_factory=list)    # Ticket darf hier später enden
     knoten: int = 2                 # so viele Knotenbahnhöfe als Zwischenhalt erzwingen (0 = aus)
+    baustellen: list[dict] = field(default_factory=list)  # {"name", "stationen": [...], "von", "bis"}
     knoten_seiten: int = 4          # Ergebnisseiten je erzwungenem Zwischenhalt
+
+
+def _norm_station(x: str) -> str:
+    x = x.lower().replace("hauptbahnhof", "hbf")
+    return re.sub(r"[^a-z0-9äöüß]", "", x)
+
+
+def construction_hits(legs: list[Leg], d: date, baustellen: list[dict]) -> list[str]:
+    """Namen der eingetragenen Baustellen, die die Kette an diesem Tag
+    befährt: eine Teilstrecke hält an mindestens zwei der Baustellen-Bahnhöfe
+    (bei nur einem eingetragenen Bahnhof: an diesem)."""
+    hits = []
+    for b in baustellen or []:
+        try:
+            if not (date.fromisoformat(b["von"]) <= d <= date.fromisoformat(b["bis"])):
+                continue
+        except Exception:
+            continue
+        wanted = [_norm_station(x) for x in b.get("stationen") or [] if x.strip()]
+        need = min(2, len(wanted))
+        if not need:
+            continue
+        for l in legs:
+            if l.walk:
+                continue
+            names = [_norm_station(n) for n in (l.stops or [l.from_name, l.to_name])]
+            matched = set()
+            for n in names:   # jeder Halt zählt für den am besten passenden Eintrag ("Lübbenau" vor "Lübben")
+                cands = [w for w in wanted if n.startswith(w) or w in n]
+                if cands:
+                    matched.add(max(cands, key=len))
+            if len(matched) >= need:
+                hits.append(b.get("name") or ", ".join(b.get("stationen")))
+                break
+    return hits
 
 
 def _resolve(client, text: str, given_id: str) -> dict:
@@ -464,26 +500,32 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
             run(d, a, b)
         day_done(d, per_day[d.isoformat()]["bis_max_preis"])
 
-    if p.knoten > 0 and found:
-        hubs = _pick_hubs(found.values(), p.knoten, exclude={_city(x["name"]) for x in starts + ziele})
-        progress("Runde 2, erzwungene Zwischenhalte: " + (", ".join(f"{n} ({pct:.0%} verpasst)" for n, pct in hubs) or "keine"))
-        vias = []
-        for name, _ in hubs:
-            try:
-                hit = client.locations(name)
-            except bahnde.Blocked:
-                raise
-            if hit:
-                vias.append(hit[0])
+    hubs = _pick_hubs(found.values(), p.knoten, exclude={_city(x["name"]) for x in starts + ziele}) \
+        if p.knoten > 0 and found else []
+    # eingetragene Baustellen im Suchzeitraum: Ketten gezielt hindurchführen,
+    # über einen Bahnhof in der Mitte der Baustelle
+    active = [b for b in p.baustellen if b.get("stationen") and any(
+        b.get("von", "") <= d.isoformat() <= b.get("bis", "") for d in dates)]
+    bau_vias = [(b["stationen"][len(b["stationen"]) // 2], b["von"], b["bis"]) for b in active]
+    if hubs or bau_vias:
+        progress("Runde 2, erzwungene Zwischenhalte: "
+                 + ", ".join([f"{n} ({pct:.0%} verpasst)" for n, pct in hubs] + [f"{n} (Baustelle)" for n, _, _ in bau_vias]))
+        vias = []   # (Ort, gültig von, gültig bis); Knoten gelten immer
+        for name, von, bis in [(n, "", "9999") for n, _ in hubs] + bau_vias:
+            hit = client.locations(name)
+            if hit and hit[0]["id"] not in [v[0]["id"] for v in vias]:
+                vias.append((hit[0], von, bis))
         for d in dates:
             for a, b in pairs:
-                for via in vias:
-                    run(d, a, b, via=via, pages=p.knoten_seiten)
+                for via, von, bis in vias:
+                    if von <= d.isoformat() <= bis:
+                        run(d, a, b, via=via, pages=p.knoten_seiten)
             day_done(d, 0)
 
     # Baustellenhinweis als Bonus: dort ist eine spätere Fahrplanänderung,
     # selbst ein Auslöser, am wahrscheinlichsten
-    results = sorted(found.values(), key=lambda r: (-r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
+    results = sorted(found.values(), key=lambda r: (not r.get("geplant"),
+                                                     -r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
                                                      r["preis"], r["ab"]))
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
             "ergebnisse": results, "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
@@ -556,9 +598,10 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             nav = score(legs, h, days_hist, navigator_buffer=p.navigator_puffer)
             strict = score(legs, h, days_hist, navigator_buffer=0)
             r = result_dict(h, nav, strict, p.ermaessigung)
+            geplant = construction_hits(legs, d, p.baustellen)
             hinweise = bahnde.notices(v)
             r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "",
-                     hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise))
+                     hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise), geplant=geplant)
             if via and via["name"] not in r["zwischenhalte"]:
                 r["zwischenhalte"] = [via["name"]] + r["zwischenhalte"][:1]
             found[key] = r

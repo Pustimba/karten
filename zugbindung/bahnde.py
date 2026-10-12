@@ -221,9 +221,10 @@ def verbindung_to_legs(v: dict) -> list[Leg]:
         if num and num not in name:
             name = f"{name} ({num})"
         operator = next((z.get("value") for z in vm.get("zugattribute") or [] if z.get("key") == "BEF"), "")
+        stops = [h.get("name") for h in a.get("halte") or [] if isinstance(h, dict) and h.get("name")]
         legs.append(Leg(name, num, line, from_name, to_name, dep, arr,
                         from_eva=from_eva, to_eva=to_eva, operator=operator or "",
-                        product=vm.get("produktGattung") or ""))
+                        product=vm.get("produktGattung") or "", stops=stops or [from_name, to_name]))
     return legs
 
 

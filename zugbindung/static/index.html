@@ -59,6 +59,11 @@ textarea { min-height: 110px; resize: vertical; }
 .chip .nm { cursor: pointer; }
 .chip small { color: var(--muted); margin-left: 4px; }
 .lblsub { color: var(--muted); font-size: 12px; }
+.badge.plan { background: var(--good-bg); color: var(--good); font-weight: 600; }
+.bau { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--soft); border-radius: 9px; padding: 6px 10px; margin-top: 6px; font-size: 13px; }
+.bau.off { opacity: .45; }
+.bau b { font-weight: 600; }
+.linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 13px; padding: 0; text-decoration: underline; }
 .badge { display: inline-block; background: var(--mid-bg); color: var(--mid); border-radius: 7px; padding: 2px 8px; font-size: 12px; margin: 0 0 4px; cursor: help; }
 .ticket { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -89,7 +94,7 @@ pre.log { background: var(--soft); border-radius: 9px; padding: 10px; font-size:
 .toolbar select { width: auto; }
 .res { display: grid; grid-template-columns: 88px 1fr; gap: 16px; }
 .score { text-align: center; border-radius: 12px; padding: 10px 4px; align-self: start; }
-.score b { display: block; font-size: 28px; line-height: 1.1; letter-spacing: -.02em; }
+.score b { display: block; white-space: nowrap; font-size: 25px; line-height: 1.1; letter-spacing: -.02em; }
 .score small { display: block; font-size: 11px; opacity: .85; }
 .s-good { background: var(--good-bg); color: var(--good); }
 .s-mid { background: var(--mid-bg); color: var(--mid); }
@@ -118,6 +123,7 @@ td.num { text-align: right; white-space: nowrap; }
 .help h3 { margin: 18px 0 6px; font-size: 16px; }
 .help p, .help li { color: var(--ink); }
 .help ol, .help ul { padding-left: 20px; }
+a { color: var(--accent); }
 footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px; }
 @media (max-width: 640px) {
   .top { height: auto; flex-wrap: wrap; padding: 10px 16px; gap: 8px; }
@@ -183,6 +189,20 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
               <span class="sub" style="margin:0;font-size:13px" id="vor-hint">Findet Bahnhöfe vor dem Start und hinter dem Ziel, über die ein Ticket plausibel deine Strecke einschließt.</span></div>
             <div class="progress hidden" id="p-vor"></div>
           </div>
+          <details class="mode-preis full adv" id="bau-box" style="margin-top:0">
+            <summary>Geplante Baustellen (optional) <span class="lblsub" id="bau-count"></span></summary>
+            <p class="sub" style="margin:8px 0;font-size:13px">Trag hier angekündigte Bauarbeiten ein, die vermutlich noch nicht im Buchungsfahrplan stehen, z. B. von
+              <a href="https://bahn.de/bauarbeiten" target="_blank" rel="noopener">bahn.de/bauarbeiten</a>, dem
+              <a href="https://www.deutschebahn.com/de/bahnwelt/bauen_bahn/bauinfoportal-1185562" target="_blank" rel="noopener">DB BauInfoPortal</a>
+              oder der Seite deines Verkehrsverbunds. Ketten, die an einem Reisetag im Zeitraum durch mindestens zwei der Bahnhöfe fahren, stehen ganz oben; fällt der Zug dort später aus, entfällt die Zugbindung. Zusätzlich sucht die App gezielt Ketten durch die Baustelle.</p>
+            <div id="bau-list"></div>
+            <div class="grid" style="margin-top:10px">
+              <div><label for="bau-name">Bezeichnung</label><input id="bau-name" placeholder="z. B. Sperrung Lübbenau bis Cottbus"></div>
+              <div><label for="bau-st">Betroffene Bahnhöfe (mit Komma)</label><input id="bau-st" placeholder="z. B. Lübbenau, Vetschau, Cottbus"></div>
+              <div><label>Zeitraum der Baustelle</label><div class="row"><input type="date" id="bau-von" style="flex:1"><span class="sub" style="margin:0">bis</span><input type="date" id="bau-bis" style="flex:1"></div></div>
+              <div style="align-self:end"><button type="button" class="btn ghost" id="bau-add">Baustelle hinzufügen</button></div>
+            </div>
+          </details>
           <div class="mode-preis">
             <label>Zeitraum</label>
             <div class="row"><input type="date" id="dvon" style="flex:1"><span class="sub" style="margin:0">bis</span><input type="date" id="dbis" style="flex:1"></div>
@@ -297,7 +317,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-let state = { mode: "preis", starts: [], ziele: [], tage: [], stops: { von: null, nach: null }, status: null, results: { suche: [], pruefe: [] } };
+let state = { mode: "preis", baustellen: [], starts: [], ziele: [], tage: [], stops: { von: null, nach: null }, status: null, results: { suche: [], pruefe: [] } };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem("zb-" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -493,6 +513,35 @@ $("#go-vor").onclick = async () => {
 };
 const onEnds = (k) => state[k].filter((x) => x.on).map((x) => x.name);
 
+// ---------------- geplante Baustellen
+function renderBau() {
+  $("#bau-list").innerHTML = state.baustellen.map((b, i) => `<div class="bau ${b.on ? "" : "off"}">
+      <label style="margin:0;display:flex;gap:6px;align-items:center;color:var(--ink)"><input type="checkbox" data-bau-on="${i}" ${b.on ? "checked" : ""} style="width:auto"> <b>${esc(b.name)}</b></label>
+      <span>${dm(b.von + "T00")} bis ${dm(b.bis + "T00")}</span><span class="sub" style="margin:0">${esc(b.stationen.join(", "))}</span>
+      <button type="button" class="linkbtn" data-bau-zeit="${i}">als Suchzeitraum</button>
+      <button type="button" class="copy" data-bau-del="${i}">entfernen</button></div>`).join("");
+  const n = state.baustellen.filter((b) => b.on).length;
+  $("#bau-count").textContent = n ? `(${n} aktiv)` : "";
+  updateEstimate();
+  $$("[data-bau-on]").forEach((c) => c.onchange = () => { state.baustellen[+c.dataset.bauOn].on = c.checked; renderBau(); saveForm(); });
+  $$("[data-bau-del]").forEach((b) => b.onclick = () => { state.baustellen.splice(+b.dataset.bauDel, 1); renderBau(); saveForm(); });
+  $$("[data-bau-zeit]").forEach((b) => b.onclick = () => {
+    const x = state.baustellen[+b.dataset.bauZeit], today = new Date().toISOString().slice(0, 10);
+    const von = x.von < today ? today : x.von;
+    const end = new Date(von + "T12:00:00"); end.setDate(end.getDate() + 13);
+    $("#dvon").value = von; $("#dbis").value = x.bis < end.toISOString().slice(0, 10) ? x.bis : end.toISOString().slice(0, 10);
+    updateEstimate(); saveForm();
+  });
+}
+$("#bau-add").onclick = () => {
+  const name = $("#bau-name").value.trim(), st = $("#bau-st").value.split(",").map((x) => x.trim()).filter(Boolean);
+  const von = $("#bau-von").value, bis = $("#bau-bis").value;
+  if (!st.length || !von || !bis || bis < von) { alert("Bitte mindestens einen Bahnhof und einen gültigen Zeitraum angeben."); return; }
+  state.baustellen.push({ name: name || st.join(" - "), stationen: st, von, bis, on: true });
+  ["#bau-name", "#bau-st"].forEach((sel) => $(sel).value = "");
+  renderBau(); saveForm();
+};
+
 function reiseTage() {
   const a = $("#dvon").value, b = $("#dbis").value;
   if (!a || !b || b < a) return [];
@@ -506,7 +555,7 @@ function updateEstimate() {
   if (state.mode === "preis") {
     const n = reiseTage().length, v = (1 + onEnds("starts").length) * (1 + onEnds("ziele").length);
     $("#dhint").textContent = n ? `${n} Reisetage × ${v} Ticket-Variante${v > 1 ? "n" : ""}` : "Zeitraum prüfen";
-    const kn = +($("#knoten")?.value || 0), f = 1 + kn * 0.4;
+    const kn = +($("#knoten")?.value || 0) + state.baustellen.filter((b) => b.on).length, f = 1 + kn * 0.4;
     const lo = Math.max(1, Math.round(n * v * f * 12 / 60)), hi = Math.max(2, Math.round(n * v * f * 30 / 60));
     $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v * (1 + kn) > 900 ? " Zu viele Abfragen: bitte weniger Bahnhöfe, Knoten oder Tage." : "") : "";
   } else {
@@ -522,7 +571,7 @@ function saveForm() {
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
     erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
     dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
-    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value });
+    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value, baustellen: state.baustellen });
 }
 function loadForm() {
   const f = store.get("form", null);
@@ -530,7 +579,7 @@ function loadForm() {
   if (f) {
     ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
     $$("#rwd input").forEach((c) => c.checked = (f.rwd || []).includes(c.value));
-    state.starts = f.starts || []; state.ziele = f.ziele || [];
+    state.starts = f.starts || []; state.ziele = f.ziele || []; state.baustellen = f.baustellen || [];
     state.stops = f.stops || state.stops;
     if (state.stops.von) $("#von-hint").textContent = "✓ " + state.stops.von.name;
     if (state.stops.nach) $("#nach-hint").textContent = "✓ " + state.stops.nach.name;
@@ -542,7 +591,7 @@ function loadForm() {
   if (!$("#dvon").value || $("#dvon").value < today) $("#dvon").value = plus(1);
   if (!$("#dbis").value || $("#dbis").value < $("#dvon").value) $("#dbis").value = plus(14);
   $("#dvon").min = today; $("#dbis").min = today;
-  renderTage(); renderEnds();
+  renderTage(); renderEnds(); renderBau();
 }
 $$("#f-suche input, #f-suche select").forEach((el) => el.addEventListener("change", saveForm));
 
@@ -556,7 +605,8 @@ $("#f-suche").onsubmit = async (e) => {
     const body = { von: $("#von").value, nach: $("#nach").value, von_id: idFor("von", "bahnde"), nach_id: idFor("nach", "bahnde"),
       datum_von: $("#dvon").value, datum_bis: $("#dbis").value, wochentage: $$("#rwd input:checked").map((c) => +c.value),
       ab: $("#ab").value, bis: $("#bis").value, max_preis: $("#maxp").value, ermaessigung: $("#erm").value, navigator_puffer: $("#navp").value,
-      starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value };
+      starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value,
+      baustellen: state.baustellen.filter((b) => b.on).map(({ name, stationen, von, bis }) => ({ name, stationen, von, bis })) };
     $("#r-suche").innerHTML = "";
     try { const { job } = await api("/api/bestetage", body); follow(job, $("#p-suche"), "bestetage"); }
     catch (err) { const b = $("#p-suche"); b.classList.remove("hidden"); b.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
@@ -611,6 +661,7 @@ function card(r, i) {
     <div>
       ${r.titel ? `<div class="meta" style="margin-bottom:2px">${esc(r.titel)}</div>` : ""}
       ${r.fernverkehr === false ? `<div class="err" style="margin:0 0 6px">Nur Nahverkehr: Das wäre ein Nahverkehrsticket. Nach aufgehobener Zugbindung gilt es nur für Nahverkehrszüge, für ICE oder IC wertlos.</div>` : ""}
+      ${r.geplant && r.geplant.length ? `<div class="badge plan">🚧 fährt durch geplante Baustelle: ${esc(r.geplant.join(", "))}</div> ` : ""}
       ${r.baustelle ? `<div class="badge" title="${esc((r.hinweise || []).join(" · "))}">⚠ bahn.de meldet Bauarbeiten oder Änderungen auf dieser Verbindung: Chance auf spätere Fahrplanänderung</div>` : ""}
       ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}</div>` : ""}
       <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
@@ -652,7 +703,7 @@ function renderResults(kind, res) {
   const sorted = () => {
     const by = $("#sort-" + kind)?.value || "komb", min = +($("#min-" + kind)?.value || 0);
     const day = $("#day-" + kind)?.value || "", variant = $("#var-" + kind)?.value || "";
-    const f = { komb: (r) => -(r.p_kombiniert ?? r.p_navigator) - (r.baustelle ? 0.05 : 0), preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
+    const f = { komb: (r) => (r.geplant && r.geplant.length ? -10 : 0) - (r.p_kombiniert ?? r.p_navigator) - (r.baustelle ? 0.05 : 0), preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
     return list.filter((r) => r.fehler || ((r.p_kombiniert ?? r.p_navigator) >= min && (!day || r.ab.slice(0, 10) === day)
       && (!variant || `${r.ticket_von} → ${r.ticket_nach}` === variant)))
       .sort((a, b) => (f(a) > f(b)) - (f(a) < f(b)) || (b.p_navigator - a.p_navigator));

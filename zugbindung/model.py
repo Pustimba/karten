@@ -1,6 +1,6 @@
 """Gemeinsame Datenstruktur für eine Teilstrecke einer Verbindung."""
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -23,6 +23,7 @@ class Leg:
     to_eva: str = ""
     operator: str = ""        # Betreiber, falls bekannt
     product: str = ""         # Gattung, z. B. "ICE", "EC_IC", "REGIONAL", "HIGHSPEED_RAIL"
+    stops: list = field(default_factory=list)   # alle Halte der Teilstrecke (bahn.de), inkl. Start und Ziel
 
     def long_distance(self) -> bool:
         """Fernzug? Nur damit wird ein Ticket zum Fernverkehrsticket, das nach

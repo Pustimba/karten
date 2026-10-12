@@ -189,13 +189,14 @@ class App:
             navigator_puffer=int(params.get("navigator_puffer") if params.get("navigator_puffer") not in (None, "") else 3),
             von_id=params.get("von_id") or "", nach_id=params.get("nach_id") or "",
             starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x],
-            knoten=int(params.get("knoten") if params.get("knoten") not in (None, "") else 2))
+            knoten=int(params.get("knoten") if params.get("knoten") not in (None, "") else 2),
+            baustellen=[b for b in params.get("baustellen") or [] if b.get("stationen") and b.get("von") and b.get("bis")])
         dates = service.travel_dates(p)
         if not dates:
             raise RuntimeError("Im gewählten Zeitraum liegt kein passender Reisetag.")
         if len(dates) > 62:
             raise RuntimeError("Bitte höchstens 62 Reisetage auf einmal abfragen.")
-        job.total, job.phase = len(dates) * (2 if p.knoten else 1), "bahn.de abfragen"
+        job.total, job.phase = len(dates) * (2 if (p.knoten or p.baustellen) else 1), "bahn.de abfragen"
         pairs = (1 + len(p.starts)) * (1 + len(p.ziele))
         if pairs * len(dates) * (1 + p.knoten) > 900:
             raise RuntimeError(f"{pairs} Ticket-Varianten × {len(dates)} Tage sind zu viele Abfragen. "

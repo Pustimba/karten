@@ -79,6 +79,13 @@ Wer das Projekt per `git clone` holt, bekommt keine der beiden Sperren.
 
 **Rangfolge:** Die große Zahl auf jeder Karte verbindet die echte Nachspielung vergangener Tage mit der Summe der Einzelrisiken. Je mehr Tage vollständige Daten haben, desto stärker zählt die Nachspielung (bei wenigen Tagen wird zur Einzelrisiko-Schätzung hin geglättet). Verbindungen, zu denen bahn.de Bauarbeiten oder Änderungen meldet (⚠), stehen etwas weiter oben, weil dort eine spätere Fahrplanänderung am wahrscheinlichsten ist.
 
+**Geplante Baustellen (der stärkste Hebel):** Eine Fahrplanänderung nach der Buchung hebt die Zugbindung ebenfalls auf. Am sichersten passiert das auf Strecken mit angekündigten Bauarbeiten, die bei der Buchung noch nicht im Fahrplan stehen: Man bucht z. B. im Oktober eine Kette mit Nahverkehrs-Vorlauf durch eine Baustelle im Februar; wird der Baufahrplan eingespielt, fällt der Zug aus, und das Ticket ist ein Jahr lang flexibel. Eine offene Datenquelle für geplante Baustellen gibt es nicht, deshalb trägst du sie unter **„Geplante Baustellen (optional)“** selbst ein: Bezeichnung, betroffene Bahnhöfe (mit Komma) und Zeitraum, z. B. von [bahn.de/bauarbeiten](https://bahn.de/bauarbeiten), dem [DB BauInfoPortal](https://www.deutschebahn.com/de/bahnwelt/bauen_bahn/bauinfoportal-1185562) oder der Seite deines Verkehrsverbunds. Die App
+* markiert jede Kette, die an einem Reisetag im Baustellenzeitraum an mindestens zwei der Bahnhöfe hält (bei nur einem eingetragenen Bahnhof: an diesem), mit „🚧 fährt durch geplante Baustelle“ und stellt sie ganz nach oben;
+* sucht in Runde 2 zusätzlich gezielt Ketten mit einem Bahnhof aus der Mitte der Baustelle als Zwischenhalt;
+* übernimmt per „als Suchzeitraum“ den Baustellenzeitraum (höchstens 14 Tage) als Reisezeitraum.
+
+Erkannt werden nur Halte, die bahn.de für die Teilstrecke auflistet. Ein ICE, der eine Baustelle ohne Halt durchfährt, fällt deshalb nur auf, wenn zwei eingetragene Bahnhöfe Halte dieses Zuges sind. Für Nahverkehrs-Vorläufe, die überall halten, funktioniert es zuverlässig.
+
 **Nur DB-Züge:** bahn.de zeigt auch FlixTrain-Verbindungen an. Die App verwirft alle Ketten mit FlixTrain, Nachtzügen anderer Bahnen (Nightjet, EuroNight) und ausländischen Betreibern, weil ein DB-Sparpreis dafür nicht gilt.
 
 Unter **Erweiterte Einstellungen** lassen sich die Navigator-Schwelle, die Zahl der erzwungenen Knoten und (im Modus „Zugketten erkunden“) Abfrageraster, kürzester erlaubter Umstieg und die Wochentage der Vergangenheit einstellen. Die Bedeutung der Zahlen steht in [Abschnitt 11](#11-so-liest-du-die-ergebnisse), die Strategie in [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026).
