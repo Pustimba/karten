@@ -1,4 +1,5 @@
 """Gemeinsame Datenstruktur für eine Teilstrecke einer Verbindung."""
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -20,7 +21,17 @@ class Leg:
     walk: bool = False
     from_eva: str = ""        # 8-stellige EVA-Nummer, falls bekannt (bahn.de)
     to_eva: str = ""
-    operator: str = ""        # Betreiber, falls bekannt (Transitous)
+    operator: str = ""        # Betreiber, falls bekannt
+    product: str = ""         # Gattung, z. B. "ICE", "EC_IC", "REGIONAL", "HIGHSPEED_RAIL"
+
+    def long_distance(self) -> bool:
+        """Fernzug? Nur damit wird ein Ticket zum Fernverkehrsticket, das nach
+        aufgehobener Zugbindung auch für ICE und IC gilt."""
+        if self.walk:
+            return False
+        if self.product in ("ICE", "EC_IC", "IR", "HIGHSPEED_RAIL", "LONG_DISTANCE"):
+            return True
+        return bool(re.match(r"^(ICE|IC|EC|ECE|RJX?)\b", self.name))
 
     def label(self) -> str:
         return f"{self.name} {self.from_name} {self.dep:%H:%M} → {self.to_name} {self.arr:%H:%M}"

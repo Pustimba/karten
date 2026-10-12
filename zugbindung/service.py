@@ -124,7 +124,9 @@ def result_dict(h: History, nav: Result, strict: Result, ermaessigung: str = "bc
     trains = [l for l in nav.legs if not l.walk]
     first, last = trains[0], trains[-1]
     return {
+        "p_kombiniert": nav.p_kombiniert,
         "p_navigator": nav.p_unabhaengig,
+        "fernverkehr": any(l.long_distance() for l in trains),
         "p_streng": strict.p_unabhaengig,
         "tage_navigator": [nav.tage_mit, nav.tage],
         "tage_streng": [strict.tage_mit, strict.tage],
@@ -164,13 +166,15 @@ def search(h: History, p: SearchParams, progress=_print) -> dict:
                 continue
             if not p.alle_betreiber and any(EXCLUDE.search(f"{l.name} {l.operator}") for l in trains):
                 continue
+            if not any(l.long_distance() for l in trains):
+                continue   # reine Nahverkehrskette: Nahverkehrsticket, für ICE/IC später wertlos
             mt = min_transfer(legs)
             if mt is not None and mt < p.min_umstieg:
                 continue
             nav = score(legs, h, days, navigator_buffer=p.navigator_puffer)
             strict = score(legs, h, days, navigator_buffer=0)
             pairs.append((nav, strict))
-    pairs.sort(key=lambda r: (-r[0].p_unabhaengig, -r[1].p_unabhaengig))
+    pairs.sort(key=lambda r: (-r[0].p_kombiniert, -r[1].p_unabhaengig))
     return {
         "von": from_name, "nach": to_name, "daten": p.daten,
         "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
@@ -477,7 +481,10 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
                     run(d, a, b, via=via, pages=p.knoten_seiten)
             day_done(d, 0)
 
-    results = sorted(found.values(), key=lambda r: (-r["p_navigator"], r["preis"], r["ab"]))
+    # Baustellenhinweis als Bonus: dort ist eine spätere Fahrplanänderung,
+    # selbst ein Auslöser, am wahrscheinlichsten
+    results = sorted(found.values(), key=lambda r: (-r["p_kombiniert"] - (0.05 if r.get("baustelle") else 0),
+                                                     r["preis"], r["ab"]))
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
             "ergebnisse": results, "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
             "max_preis": p.max_preis, "varianten": [f"{a['name']} → {b['name']}" for a, b in pairs]}
@@ -529,6 +536,10 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             # FlixTrain und andere Nicht-DB-Züge: mit einem DB-Sparpreis nicht nutzbar
             if any(EXCLUDE.search(f"{l.name} {l.operator}") for l in trains):
                 continue
+            # ohne Fernzug ist es ein Nahverkehrsticket: nach aufgehobener
+            # Zugbindung nur für Nahverkehrszüge gültig, für den ICE wertlos
+            if not any(l.long_distance() for l in trains):
+                continue
             n_all += 1
             price = bahnde.price_of(v)
             if price is not None:
@@ -545,7 +556,9 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             nav = score(legs, h, days_hist, navigator_buffer=p.navigator_puffer)
             strict = score(legs, h, days_hist, navigator_buffer=0)
             r = result_dict(h, nav, strict, p.ermaessigung)
-            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "")
+            hinweise = bahnde.notices(v)
+            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "",
+                     hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise))
             if via and via["name"] not in r["zwischenhalte"]:
                 r["zwischenhalte"] = [via["name"]] + r["zwischenhalte"][:1]
             found[key] = r

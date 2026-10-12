@@ -50,6 +50,14 @@ class Result:
     unbekannt: list[str] = field(default_factory=list)
 
     @property
+    def p_kombiniert(self) -> float:
+        """Beste Schätzung für die Rangfolge: die echte Tagessimulation, zur
+        Unabhängigkeits-Schätzung hin geglättet, solange sie auf wenigen
+        Tagen beruht (je weniger Tage, desto stärker zählt p_unabhaengig)."""
+        k = 6
+        return (self.tage_mit + k * self.p_unabhaengig) / (self.tage + k)
+
+    @property
     def transfers(self) -> int:
         return max(0, len([l for l in self.legs if not l.walk]) - 1)
 

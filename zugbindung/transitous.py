@@ -98,7 +98,7 @@ def itinerary_to_legs(it: dict) -> list[Leg]:
         display = l.get("displayName") or line or l.get("mode", "")
         name = display if num and num in display else f"{display} {num}".strip()
         legs.append(Leg(name, num, line, l["from"]["name"], l["to"]["name"], dep, arr,
-                        operator=l.get("agencyName") or ""))
+                        operator=l.get("agencyName") or "", product=l.get("mode") or ""))
     return legs
 
 

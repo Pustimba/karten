@@ -67,7 +67,8 @@ class History:
             if hit:
                 result = (num, eva)
         if result is None and (num or line):
-            for tol in (0, 3):
+            # 10 min fängt kleine Verschiebungen nach einem Fahrplanwechsel ab
+            for tol in (0, 3, 10):
                 rows = self.con.execute(f"""
                     SELECT train_no, eva, any_value(station_name), count(DISTINCT CAST({col} AS DATE))
                     FROM delays

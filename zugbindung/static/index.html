@@ -59,6 +59,7 @@ textarea { min-height: 110px; resize: vertical; }
 .chip .nm { cursor: pointer; }
 .chip small { color: var(--muted); margin-left: 4px; }
 .lblsub { color: var(--muted); font-size: 12px; }
+.badge { display: inline-block; background: var(--mid-bg); color: var(--mid); border-radius: 7px; padding: 2px 8px; font-size: 12px; margin: 0 0 4px; cursor: help; }
 .ticket { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .chip { background: var(--soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
@@ -277,7 +278,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
       <p>Der Modus <b>Zugketten erkunden</b> braucht kein bahn.de und zeigt typische Ketten ohne Preis. <b>Link prüfen</b> bewertet eine einzelne geteilte bahn.de-Verbindung.</p>
       <h3>Die Zahlen</h3>
       <ul>
-        <li><b>Große Zahl</b>: Anteil der vergangenen Tage, an denen mindestens ein Auslöser eingetreten wäre. Ein Anschluss zählt als verpasst, wenn weniger als 3 Minuten Umstiegszeit bleiben (so ähnlich urteilt der DB Navigator).</li>
+        <li><b>Große Zahl</b>: geschätzte Wahrscheinlichkeit, dass mindestens ein Auslöser eintritt. Sie verbindet die echte Nachspielung vergangener Tage mit der Summe der Einzelrisiken; je mehr Tage vollständige Daten haben, desto stärker zählt die Nachspielung. Ein Anschluss zählt als verpasst, wenn weniger als 3 Minuten Umstiegszeit bleiben (so ähnlich urteilt der DB Navigator).</li>
+        <li><b>⚠ Bauarbeiten</b>: bahn.de meldet zu dieser Verbindung Bauarbeiten oder Änderungen. Dort ist eine spätere Fahrplanänderung am wahrscheinlichsten, die ebenfalls die Zugbindung aufhebt. Solche Verbindungen stehen in der Rangliste etwas weiter oben.</li>
+        <li>Verbindungen <b>ohne Fernzug</b> zeigt die Suche nicht: Das wären Nahverkehrstickets, die nach aufgehobener Zugbindung nicht für ICE oder IC gelten.</li>
         <li><b>streng</b>: Anschluss zählt erst als verpasst, wenn der Zug wirklich weg ist. Untere Grenze.</li>
         <li><b>Tage</b>: echte Nachspielung, nur Tage mit Daten für alle Züge der Kette.</li>
         <li><b>Hauptrisiken</b>: die Stellen, an denen die Kette am häufigsten reißt.</li>
@@ -604,9 +607,11 @@ function card(r, i) {
   const riskRows = r.risiken.map((x) => `<tr><td>${esc(x.teil)}</td><td class="num">${pct(x.anteil)}</td><td class="num">${x.tage} Tage</td></tr>`).join("");
   const last = trains[trains.length - 1];
   return `<div class="card res">
-    <div class="score ${scoreClass(r.p_navigator)}"><b>${pct(r.p_navigator)}</b><small>streng ${pct(r.p_streng)}</small><small>${r.tage_navigator[0]}/${r.tage_navigator[1]} Tage</small></div>
+    <div class="score ${scoreClass(r.p_kombiniert ?? r.p_navigator)}" title="Geschätzte Wahrscheinlichkeit, dass die Zugbindung entfällt. Navigator ${pct(r.p_navigator)} (Einzelrisiken), streng ${pct(r.p_streng)}, Tagesnachspielung ${r.tage_navigator[0]} von ${r.tage_navigator[1]} Tagen."><b>${pct(r.p_kombiniert ?? r.p_navigator)}</b><small>streng ${pct(r.p_streng)}</small><small>${r.tage_navigator[0]}/${r.tage_navigator[1]} Tage</small></div>
     <div>
       ${r.titel ? `<div class="meta" style="margin-bottom:2px">${esc(r.titel)}</div>` : ""}
+      ${r.fernverkehr === false ? `<div class="err" style="margin:0 0 6px">Nur Nahverkehr: Das wäre ein Nahverkehrsticket. Nach aufgehobener Zugbindung gilt es nur für Nahverkehrszüge, für ICE oder IC wertlos.</div>` : ""}
+      ${r.baustelle ? `<div class="badge" title="${esc((r.hinweise || []).join(" · "))}">⚠ bahn.de meldet Bauarbeiten oder Änderungen auf dieser Verbindung: Chance auf spätere Fahrplanänderung</div>` : ""}
       ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}</div>` : ""}
       <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
       <div class="chain">${chain}</div>
@@ -626,7 +631,7 @@ function card(r, i) {
 function dayOverview(res) {
   const euro = (x) => x == null ? "-" : x.toFixed(2).replace(".", ",") + " €";
   const best = {};
-  (res.ergebnisse || []).forEach((r) => { const d = r.ab.slice(0, 10); if (!best[d] || r.p_navigator > best[d]) best[d] = r.p_navigator; });
+  (res.ergebnisse || []).forEach((r) => { const d = r.ab.slice(0, 10), p = r.p_kombiniert ?? r.p_navigator; if (!best[d] || p > best[d]) best[d] = p; });
   const rows = res.tage.map((t) => `<tr><td>${dm(t.datum + "T00")}</td><td class="num">${t.verbindungen}</td><td class="num">${t.bis_max_preis}</td>
     <td class="num">${euro(t.guenstigster)}</td><td class="num">${best[t.datum] != null ? pct(best[t.datum]) : "-"}</td></tr>`).join("");
   return `<details class="card" style="padding:12px 20px"><summary style="cursor:pointer">Übersicht nach Reisetag</summary>
@@ -638,17 +643,17 @@ function renderResults(kind, res) {
   const head = kind === "suche"
     ? `<div class="toolbar"><div><b>${list.length} Verbindungen${res.tage ? " bis " + String(res.max_preis).replace(".", ",") + " €" : ""}</b> <span class="sub">${res.varianten ? "nutzbar für " : ""}${esc(res.von)} → ${esc(res.nach)}${res.varianten && res.varianten.length > 1 ? " · " + res.varianten.length + " Ticket-Varianten" : ""} · Daten ${fmtDate(res.daten_von)} bis ${fmtDate(res.daten_bis)}</span></div>
        <div class="row"><label for="sort" style="margin:0">Sortieren</label><select id="sort-${kind}">
-       <option value="nav">Wahrscheinlichkeit</option>${res.tage ? '<option value="preis">Preis</option>' : ""}<option value="streng">streng</option><option value="tage">Tagesnachspielung</option><option value="ab">Abfahrt</option><option value="dauer">Fahrzeit</option></select>
+       <option value="komb">Wahrscheinlichkeit</option><option value="nav">Navigator</option>${res.tage ? '<option value="preis">Preis</option>' : ""}<option value="streng">streng</option><option value="tage">Tagesnachspielung</option><option value="ab">Abfahrt</option><option value="dauer">Fahrzeit</option></select>
        <select id="min-${kind}"><option value="0" selected>alle</option><option value="0.5">ab 50 %</option><option value="0.75">ab 75 %</option></select>
        ${res.varianten && res.varianten.length > 1 ? `<select id="var-${kind}"><option value="">alle Tickets</option>${res.varianten.map((v) => `<option>${esc(v)}</option>`).join("")}</select>` : ""}
        ${res.tage ? `<select id="day-${kind}"><option value="">alle Tage</option>${res.tage.filter((t) => t.bis_max_preis).map((t) => `<option value="${t.datum}">${dm(t.datum + "T00")}</option>`).join("")}</select>` : ""}</div></div>
        ${res.tage ? dayOverview(res) : ""}`
     : "";
   const sorted = () => {
-    const by = $("#sort-" + kind)?.value || "nav", min = +($("#min-" + kind)?.value || 0);
+    const by = $("#sort-" + kind)?.value || "komb", min = +($("#min-" + kind)?.value || 0);
     const day = $("#day-" + kind)?.value || "", variant = $("#var-" + kind)?.value || "";
-    const f = { preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
-    return list.filter((r) => r.fehler || (r.p_navigator >= min && (!day || r.ab.slice(0, 10) === day)
+    const f = { komb: (r) => -(r.p_kombiniert ?? r.p_navigator) - (r.baustelle ? 0.05 : 0), preis: (r) => r.preis ?? 999, nav: (r) => -r.p_navigator, streng: (r) => -r.p_streng, tage: (r) => -(r.tage_navigator[1] ? r.tage_navigator[0] / r.tage_navigator[1] : 0), ab: (r) => r.ab, dauer: (r) => r.dauer_min }[by];
+    return list.filter((r) => r.fehler || ((r.p_kombiniert ?? r.p_navigator) >= min && (!day || r.ab.slice(0, 10) === day)
       && (!variant || `${r.ticket_von} → ${r.ticket_nach}` === variant)))
       .sort((a, b) => (f(a) > f(b)) - (f(a) < f(b)) || (b.p_navigator - a.p_navigator));
   };

@@ -75,6 +75,10 @@ Wer das Projekt per `git clone` holt, bekommt keine der beiden Sperren.
 
 **Zwei Runden:** In Runde 1 fragt die App bahn.de ganz normal für jede Ticket-Variante ab. Danach wählt sie aus allen gefundenen Ketten die Umstiegsbahnhöfe, an denen Anschlüsse am häufigsten reißen (Bahnhöfe in deiner Start- oder Zielstadt ausgenommen). In Runde 2 fragt sie bahn.de erneut ab, jeweils mit einem dieser Knoten als Zwischenhalt. So erscheinen Umwegketten, die bahn.de bei einer normalen Suche ausblendet. Wie viele Knoten, steht unter **Erweiterte Einstellungen** (0 bis 4, Standard 2). Ergebnisse aus Runde 2 tragen den Hinweis „gefunden mit Zwischenhalt …“, und dieser Knoten steht dann zuerst in den Zwischenhalten zum Kopieren.
 
+**Nur Fernverkehrstickets:** Ketten ohne Fernzug (nur RE, RB, S-Bahn) zeigt die App nicht. Das wären Nahverkehrstickets, und die gelten laut DB-FAQ auch nach aufgehobener Zugbindung nur in Nahverkehrszügen, für den ICE Berlin → Köln also gar nicht.
+
+**Rangfolge:** Die große Zahl auf jeder Karte verbindet die echte Nachspielung vergangener Tage mit der Summe der Einzelrisiken. Je mehr Tage vollständige Daten haben, desto stärker zählt die Nachspielung (bei wenigen Tagen wird zur Einzelrisiko-Schätzung hin geglättet). Verbindungen, zu denen bahn.de Bauarbeiten oder Änderungen meldet (⚠), stehen etwas weiter oben, weil dort eine spätere Fahrplanänderung am wahrscheinlichsten ist.
+
 **Nur DB-Züge:** bahn.de zeigt auch FlixTrain-Verbindungen an. Die App verwirft alle Ketten mit FlixTrain, Nachtzügen anderer Bahnen (Nightjet, EuroNight) und ausländischen Betreibern, weil ein DB-Sparpreis dafür nicht gilt.
 
 Unter **Erweiterte Einstellungen** lassen sich die Navigator-Schwelle, die Zahl der erzwungenen Knoten und (im Modus „Zugketten erkunden“) Abfrageraster, kürzester erlaubter Umstieg und die Wochentage der Vergangenheit einstellen. Die Bedeutung der Zahlen steht in [Abschnitt 11](#11-so-liest-du-die-ergebnisse), die Strategie in [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026).

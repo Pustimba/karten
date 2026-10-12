@@ -88,7 +88,7 @@ def recon_to_legs(recon: str) -> list[Leg]:
         num_digits = num if num.isdigit() else ""
         line = "" if num_digits else num        # Bus "X1" oder S-Bahn "S5": Linie statt Nummer
         legs.append(Leg(f"{cat} {num}".strip(), num_digits, line, from_name, to_name, dep, arr,
-                        from_eva=from_eva, to_eva=to_eva))
+                        from_eva=from_eva, to_eva=to_eva, product=cat.upper()))
     return legs
 
 
@@ -222,7 +222,8 @@ def verbindung_to_legs(v: dict) -> list[Leg]:
             name = f"{name} ({num})"
         operator = next((z.get("value") for z in vm.get("zugattribute") or [] if z.get("key") == "BEF"), "")
         legs.append(Leg(name, num, line, from_name, to_name, dep, arr,
-                        from_eva=from_eva, to_eva=to_eva, operator=operator or ""))
+                        from_eva=from_eva, to_eva=to_eva, operator=operator or "",
+                        product=vm.get("produktGattung") or ""))
     return legs
 
 
@@ -237,3 +238,30 @@ def cancelled(v: dict) -> bool:
     return any(a.get("originCancelled") or a.get("destinationCancelled")
                for a in v.get("verbindungsAbschnitte") or []
                if (a.get("verkehrsmittel") or {}).get("typ") == "PUBLICTRANSPORT")
+
+
+BAU = re.compile(r"bau|ersatzverkehr|\bsev\b|fahrplanänderung|umleitung|gleisarbeit|streckensperrung|"
+                 r"abweichend|geänderte fahrzeit|zugausfall|fällt aus", re.IGNORECASE)
+
+
+def notices(v: dict) -> list[str]:
+    """Hinweistexte, die bahn.de zur Verbindung mitliefert (Bauarbeiten,
+    Ersatzverkehr, Änderungen), aus allen bekannten Feldern."""
+    out = []
+
+    def collect(obj):
+        for key in ("himMeldungen", "priorisierteMeldungen", "meldungenAsObject", "risNotizen", "meldungen"):
+            for m in obj.get(key) or []:
+                if isinstance(m, dict):
+                    t = " ".join(str(m.get(f) or "") for f in ("ueberschrift", "text", "value")).strip()
+                elif isinstance(m, str):
+                    t = m
+                else:
+                    t = ""
+                if t and t not in out:
+                    out.append(t)
+
+    collect(v)
+    for a in v.get("verbindungsAbschnitte") or []:
+        collect(a)
+    return out

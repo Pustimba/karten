@@ -32,8 +32,11 @@ def detail(res: Result, nav: Result | None = None, title: str = "") -> str:
     for l in res.legs:
         out.append(f"   {'  ' if l.walk else ''}{l.label()}")
     if nav is not None:
-        out.append(f"Zugbindung entfällt: {pct(nav.p_unabhaengig)} (Navigator, Restumstieg < "
-                   f"{nav.navigator_buffer} min) / {pct(res.p_unabhaengig)} (streng)")
+        out.append(f"Zugbindung entfällt: {pct(nav.p_kombiniert)} (kombiniert); Einzelrisiken {pct(nav.p_unabhaengig)} "
+                   f"(Navigator, Restumstieg < {nav.navigator_buffer} min) / {pct(res.p_unabhaengig)} (streng)")
+        if not any(l.long_distance() for l in res.legs):
+            out.append("ACHTUNG: kein Fernzug in der Kette, also ein Nahverkehrsticket; nach aufgehobener "
+                       "Zugbindung nicht für ICE/IC gültig.")
         out.append(f"Tagessimulation: Navigator {nav.tage_mit}/{nav.tage} Tage, streng {res.tage_mit}/{res.tage} Tage")
     base = nav or res
     out.append("Einzelrisiken (Anteil der Tage, Tage mit Daten):")
