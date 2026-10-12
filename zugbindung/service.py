@@ -5,7 +5,7 @@ Kommandozeile und Weboberfläche nutzen beide dieses Modul.
 import re
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from . import bahnde, transitous
 from .history import History
@@ -137,7 +137,7 @@ def result_dict(h: History, nav: Result, strict: Result, ermaessigung: str = "bc
         "dauer_min": int((last.arr - first.dep).total_seconds() // 60),
         "umstiege": nav.transfers,
         "legs": [{"name": l.name, "von": l.from_name, "nach": l.to_name, "ab": l.dep.isoformat(),
-                  "an": l.arr.isoformat(), "fussweg": l.walk} for l in nav.legs],
+                  "an": l.arr.isoformat(), "fussweg": l.walk, "fern": l.long_distance()} for l in nav.legs],
         "risiken": [{"teil": c.label, "anteil": c.p, "tage": c.n} for c in nav.components],
         "ohne_daten": nav.unbekannt,
         "zwischenhalte": via_suggestions(h, nav),
@@ -227,6 +227,8 @@ class BestDaysParams:
     knoten: int = 2                 # so viele Knotenbahnhöfe als Zwischenhalt erzwingen (0 = aus)
     baustellen: list[dict] = field(default_factory=list)  # {"name", "stationen": [...], "von", "bis"}
     knoten_seiten: int = 4          # Ergebnisseiten je erzwungenem Zwischenhalt
+    verlaengern: int = 4            # so viele wacklige Fernzüge mit Vor- und Nachlauf verlängern (0 = aus)
+    verl_seiten: int = 3            # Ergebnisseiten je Verlängerung
 
 
 def _norm_station(x: str) -> str:
@@ -496,13 +498,16 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
     per_day: dict[str, dict] = {}
     state = {"fehler_folge": 0, "uebersprungen": 0, "abbruch": ""}
 
-    def run(d, a, b, via=None, pages=None):
+    def run(d, a, b, via=None, pages=None, via_list=None, when=None, require=None, stop_after=None, core=""):
         if state["abbruch"]:
             return
+        vl = via_list if via_list is not None else ([via] if via else [])
         name = (f"{WD_NAMES[d.weekday()]} {d:%d.%m.} {a['name']} → {b['name']}"
-                + (f" über {via['name']}" if via else ""))
+                + (f" über {', '.join(v['name'] for v in vl)}" if vl else "")
+                + (f" mit {core}" if core else ""))
         try:
-            n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found, via=via, max_pages=pages)
+            n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found, vias=vl, max_pages=pages,
+                                             when=when, require=require, stop_after=stop_after, core=core)
         except bahnde.Unreachable as e:
             # einzelne Variante überspringen; erst mehrere Ausfälle hintereinander beenden die Suche
             state["fehler_folge"] += 1
@@ -518,6 +523,10 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
         state["fehler_folge"] = 0
         t = per_day.setdefault(d.isoformat(), {"datum": d.isoformat(), "verbindungen": 0, "bis_max_preis": 0,
                                                "guenstigster": None})
+        if require:   # Verlängerungen zählen nicht in die Tagesübersicht
+            progress(f"{name}: {n_cheap} neue Kette{'n' if n_cheap != 1 else ''} bis {eur(p.max_preis)}"
+                     + (f", günstigste {eur(cheapest)}" if cheapest is not None else ""))
+            return
         t["verbindungen"] += n_all
         t["bis_max_preis"] += n_cheap
         if cheapest is not None and (t["guenstigster"] is None or cheapest < t["guenstigster"]):
@@ -555,6 +564,42 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
                     if von <= d.isoformat() <= bis:
                         run(d, a, b, via=via, pages=p.knoten_seiten)
             day_done(d, 0)
+
+    # Runde 3: Die wackligsten Fernzüge (oft ein einzelner ICE, der fast
+    # täglich 20 min zu spät kommt) bekommen Vor- und Nachlauf zu den
+    # weiteren Ticket-Enden. bahn.de bietet diese Kombination von sich aus
+    # selten an; mit beiden Fernzug-Enden als Zwischenhalt und passender
+    # Uhrzeit erscheint sie. Ein knapper Anschluss am Ende des ICE macht die
+    # Kette wackliger, meist ohne höheren Preis.
+    cores = _pick_cores(found.values(), p.verlaengern) if p.verlaengern > 0 and len(pairs) > 1 else []
+    if cores and not state["abbruch"]:
+        progress("Runde 3, Ketten verlängern: " + ", ".join(f"{c['label']} ({c['p']:.0%})" for c in cores))
+        ids: dict[str, dict | None] = {}
+
+        def loc(name):
+            if name not in ids:
+                try:
+                    hit = client.locations(name)
+                except bahnde.Blocked:
+                    hit = []
+                ids[name] = hit[0] if hit else None
+            return ids[name]
+
+        for c in cores:
+            board, alight = loc(c["einstieg"]), loc(c["ausstieg"])
+            for a, b in pairs:
+                if state["abbruch"]:
+                    break
+                if (a["name"], b["name"]) == (c["ticket_von"], c["ticket_nach"]):
+                    continue
+                # Zwischenhalte nur, wo das Ticket nicht ohnehin dort beginnt oder endet
+                vias = [v for v, end in ((board, a), (alight, b))
+                        if v and _city(v["name"]) != _city(end["name"])]
+                vor = _city(c["einstieg"]) != _city(a["name"])
+                when = c["dep"] - timedelta(minutes=150) if vor else c["dep"] - timedelta(minutes=1)
+                run(c["datum"], a, b, via_list=vias, pages=p.verl_seiten, when=when,
+                    require=c["require"], stop_after=c["dep"], core=c["label"])
+            day_done(c["datum"], 0)
 
     # Baustellenhinweis als Bonus: dort ist eine spätere Fahrplanänderung,
     # selbst ein Auslöser, am wahrscheinlichsten
@@ -602,15 +647,43 @@ def _pick_hubs(results, k: int, exclude: set[str]) -> list[tuple[str, float]]:
     return [(name, mean) for _, name, mean in ranked[:k]]
 
 
+def _pick_cores(results, k: int) -> list[dict]:
+    """Die wackligsten Fernzug-Abschnitte aus den bisherigen Treffern, je
+    Reisetag und Zugfolge nur einmal. Ein Kern ist die Folge aller Fernzüge
+    einer Kette; Vor- und Nachlauf werden in Runde 3 neu gesucht."""
+    out, seen = [], set()
+    for r in sorted(results, key=lambda r: -r["p_kombiniert"]):
+        if r.get("verlaengert") or r["p_kombiniert"] < 0.5:
+            continue
+        fern = [l for l in r["legs"] if l.get("fern")]
+        if not fern:
+            continue
+        dep = datetime.fromisoformat(fern[0]["ab"])
+        key = (dep.date(), tuple(l["name"] for l in fern))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"label": " + ".join(l["name"] for l in fern), "p": r["p_kombiniert"], "datum": dep.date(),
+                    "dep": dep, "einstieg": fern[0]["von"], "ausstieg": fern[-1]["nach"],
+                    "require": {(l["name"], l["ab"]) for l in fern},
+                    "ticket_von": r["ticket_von"], "ticket_nach": r["ticket_nach"]})
+        if len(out) >= k:
+            break
+    return out
+
+
 def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days_hist, found: dict,
-          via: dict | None = None, max_pages: int | None = None):
+          vias: list[dict] = (), max_pages: int | None = None, when: datetime | None = None,
+          require: set | None = None, stop_after: datetime | None = None, core: str = ""):
     """Eine Ticket-Variante a → b an einem Tag durchblättern, optional mit
-    erzwungenem Zwischenhalt."""
-    when = f"{d.isoformat()}T{p.ab}:00"
+    erzwungenen Zwischenhalten. require: nur Ketten behalten, die alle diese
+    Fahrten (Name, Abfahrt) enthalten; stop_after: Blättern beenden, sobald
+    die erste Fahrt einer Seite später abfährt."""
+    when_s = when.strftime("%Y-%m-%dT%H:%M:00") if when else f"{d.isoformat()}T{p.ab}:00"
     paging, pages, n_all, n_cheap, cheapest = None, 0, 0, 0, None
     while pages < (max_pages or p.max_seiten):
-        data = client.journeys(a["id"], b["id"], when, p.ermaessigung, paging=paging,
-                               vias=[via["id"]] if via else ())
+        data = client.journeys(a["id"], b["id"], when_s, p.ermaessigung, paging=paging,
+                               vias=[v["id"] for v in vias])
         pages += 1
         vs = data.get("verbindungen") or []
         last_dep = None
@@ -620,7 +693,10 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             if not trains or bahnde.cancelled(v):
                 continue
             last_dep = trains[0].dep
-            if trains[0].dep.date() != d or trains[0].dep.strftime("%H:%M") > p.bis:
+            if require is not None:
+                if not require <= {(l.name, l.dep.isoformat()) for l in trains}:
+                    continue
+            elif trains[0].dep.date() != d or trains[0].dep.strftime("%H:%M") > p.bis:
                 continue
             # FlixTrain und andere Nicht-DB-Züge: mit einem DB-Sparpreis nicht nutzbar
             if any(EXCLUDE.search(f"{l.name} {l.operator}") for l in trains):
@@ -647,12 +723,19 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             r = result_dict(h, nav, strict, p.ermaessigung)
             hinweise = bahnde.notices(v)
             geplant = construction_hits(legs, d, p.baustellen, hinweise)
-            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "",
-                     hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise), geplant=geplant)
-            if via and via["name"] not in r["zwischenhalte"]:
-                r["zwischenhalte"] = [via["name"]] + r["zwischenhalte"][:1]
+            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"],
+                     ueber=", ".join(v["name"] for v in vias) if vias and not core else "",
+                     verlaengert=core, hinweise=hinweise, baustelle=any(bahnde.BAU.search(t) for t in hinweise),
+                     geplant=geplant)
+            for v in reversed(vias):
+                if v["name"] not in r["zwischenhalte"]:
+                    r["zwischenhalte"] = [v["name"]] + r["zwischenhalte"]
+            r["zwischenhalte"] = r["zwischenhalte"][:2]
             found[key] = r
         paging = (data.get("verbindungReference") or {}).get("later")
-        if not vs or not paging or (last_dep and (last_dep.date() > d or last_dep.strftime("%H:%M") > p.bis)):
+        if stop_after is not None:
+            if not vs or not paging or (last_dep and last_dep > stop_after):
+                break
+        elif not vs or not paging or (last_dep and (last_dep.date() > d or last_dep.strftime("%H:%M") > p.bis)):
             break
     return n_all, n_cheap, cheapest

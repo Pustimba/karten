@@ -232,6 +232,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
             <div class="mode-preis"><label for="knoten">Umwegketten erzwingen über … Knotenbahnhöfe</label>
               <select id="knoten"><option value="0">keine (schneller)</option><option value="1">1</option><option value="2" selected>2 (empfohlen)</option><option value="3">3</option><option value="4">4 (gründlich, langsam)</option></select>
               <div class="ac-hint">Nach der ersten Runde fragt die App bahn.de noch einmal ab, mit den Umstiegsbahnhöfen als Zwischenhalt, an denen Anschlüsse am häufigsten reißen. Das findet Ketten, die bahn.de sonst nicht anzeigt.</div></div>
+            <div class="mode-preis"><label for="verl">Wackligste Fernzüge verlängern</label>
+              <select id="verl"><option value="0">aus</option><option value="2">2</option><option value="4" selected>4 (empfohlen)</option><option value="8">8 (gründlich, langsam)</option></select>
+              <div class="ac-hint">Zum Schluss nimmt die App die Fernzüge mit der höchsten Ausfallwahrscheinlichkeit (oft ein einzelner ICE, der fast täglich zu spät kommt) und sucht dazu Vor- und Nachlauf zu deinen weiteren Ticket-Enden. Ein knapper Anschluss nach dem ICE macht die Kette noch wackliger, meist ohne Aufpreis.</div></div>
             <div class="mode-ketten hidden"><label for="raster">Abfrage alle</label>
               <select id="raster"><option value="20">20 Minuten (gründlich)</option><option value="30" selected>30 Minuten</option><option value="60">60 Minuten (schnell)</option></select></div>
             <div class="mode-ketten hidden"><label for="minu">Kürzester erlaubter Umstieg (Minuten)</label><input type="number" id="minu" value="4" min="0" max="30"></div>
@@ -563,7 +566,8 @@ function updateEstimate() {
     const n = reiseTage().length, v = (1 + onEnds("starts").length) * (1 + onEnds("ziele").length);
     $("#dhint").textContent = n ? `${n} Reisetage × ${v} Ticket-Variante${v > 1 ? "n" : ""}` : "Zeitraum prüfen";
     const kn = +($("#knoten")?.value || 0) + state.baustellen.filter((b) => b.on).length, f = 1 + kn * 0.4;
-    const lo = Math.max(1, Math.round(n * v * f * 12 / 60)), hi = Math.max(2, Math.round(n * v * f * 30 / 60));
+    const vl = v > 1 ? +($("#verl")?.value || 0) * (v - 1) * 2 : 0;   // Abfragen der Runde 3
+    const lo = Math.max(1, Math.round((n * v * f + vl) * 12 / 60)), hi = Math.max(2, Math.round((n * v * f + vl) * 30 / 60));
     $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v * (1 + kn) > 900 ? " Zu viele Abfragen: bitte weniger Bahnhöfe, Knoten oder Tage." : "") : "";
   } else {
     $("#dauer").textContent = "Dauert etwa 3 bis 5 Minuten pro Reisetag.";
@@ -572,19 +576,20 @@ function updateEstimate() {
 ["#dvon", "#dbis"].forEach((sel) => $(sel).addEventListener("change", updateEstimate));
 $("#rwd").addEventListener("change", updateEstimate);
 $("#knoten").addEventListener("change", updateEstimate);
+$("#verl").addEventListener("change", updateEstimate);
 
 // ---------------- Formular merken
 function saveForm() {
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
     erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
     dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
-    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value, baustellen: state.baustellen });
+    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value, verl: $("#verl").value, baustellen: state.baustellen });
 }
 function loadForm() {
   const f = store.get("form", null);
   const today = new Date().toISOString().slice(0, 10);
   if (f) {
-    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
+    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten", "verl"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
     $$("#rwd input").forEach((c) => c.checked = (f.rwd || []).includes(c.value));
     state.starts = f.starts || []; state.ziele = f.ziele || []; state.baustellen = f.baustellen || [];
     state.stops = f.stops || state.stops;
@@ -612,7 +617,7 @@ $("#f-suche").onsubmit = async (e) => {
     const body = { von: $("#von").value, nach: $("#nach").value, von_id: idFor("von", "bahnde"), nach_id: idFor("nach", "bahnde"),
       datum_von: $("#dvon").value, datum_bis: $("#dbis").value, wochentage: $$("#rwd input:checked").map((c) => +c.value),
       ab: $("#ab").value, bis: $("#bis").value, max_preis: $("#maxp").value, ermaessigung: $("#erm").value, navigator_puffer: $("#navp").value,
-      starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value,
+      starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value, verlaengern: $("#verl").value,
       baustellen: state.baustellen.filter((b) => b.on).map(({ name, stationen, von, bis }) => ({ name, stationen, von, bis })) };
     $("#r-suche").innerHTML = "";
     try { const { job } = await api("/api/bestetage", body); follow(job, $("#p-suche"), "bestetage"); }
@@ -671,7 +676,7 @@ function card(r, i) {
       ${(r.geplant || []).filter((g) => !g.eingeplant).map((g) => `<div class="badge plan" title="Auf dem Baustellenabschnitt fährt laut bahn.de noch der normale Zug, und bahn.de meldet keine Bauarbeiten. Wird der Baufahrplan später eingespielt, fällt er weg: dann entfällt die Zugbindung.">🚧 Baustelle „${esc(g.name)}“ noch nicht im Fahrplan</div> `).join("")}
       ${(r.geplant || []).filter((g) => g.eingeplant).map((g) => `<div class="badge" title="Auf dem Abschnitt fährt bereits ein Bus oder Ersatzverkehr, oder bahn.de meldet Bauarbeiten. Die Baustelle steht schon im Fahrplan und hebt die Zugbindung deshalb nicht mehr auf.">Baustelle „${esc(g.name)}“ bereits eingeplant</div> `).join("")}
       ${r.baustelle ? `<div class="badge" title="${esc((r.hinweise || []).join(" · "))}">⚠ bahn.de meldet Bauarbeiten oder Änderungen auf dieser Verbindung: Chance auf spätere Fahrplanänderung</div>` : ""}
-      ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}</div>` : ""}
+      ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}${r.verlaengert ? ` · ${esc(r.verlaengert)} mit Vor- und Nachlauf verlängert` : ""}</div>` : ""}
       <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
       <div class="chain">${chain}</div>
       <div class="risks">${risks}</div>

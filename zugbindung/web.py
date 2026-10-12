@@ -190,21 +190,25 @@ class App:
             von_id=params.get("von_id") or "", nach_id=params.get("nach_id") or "",
             starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x],
             knoten=int(params.get("knoten") if params.get("knoten") not in (None, "") else 2),
+            verlaengern=int(params.get("verlaengern") if params.get("verlaengern") not in (None, "") else 4),
             baustellen=[b for b in params.get("baustellen") or [] if b.get("stationen") and b.get("von") and b.get("bis")])
         dates = service.travel_dates(p)
         if not dates:
             raise RuntimeError("Im gewählten Zeitraum liegt kein passender Reisetag.")
         if len(dates) > 62:
             raise RuntimeError("Bitte höchstens 62 Reisetage auf einmal abfragen.")
-        job.total, job.phase = len(dates) * (2 if (p.knoten or p.baustellen) else 1), "bahn.de abfragen"
         pairs = (1 + len(p.starts)) * (1 + len(p.ziele))
+        runde12 = len(dates) * (2 if (p.knoten or p.baustellen) else 1)
+        job.total, job.phase = runde12 + (p.verlaengern if pairs > 1 else 0), "bahn.de abfragen"
         if pairs * len(dates) * (1 + p.knoten) > 900:
             raise RuntimeError(f"{pairs} Ticket-Varianten × {len(dates)} Tage sind zu viele Abfragen. "
                                "Bitte weniger Bahnhöfe oder einen kürzeren Zeitraum wählen.")
 
         def day_done(d, n):
             job.done += 1
-            if job.done > len(dates):
+            if job.done > runde12:
+                job.phase = "Runde 3: wacklige Fernzüge verlängern"
+            elif job.done > len(dates):
                 job.phase = "Runde 2: erzwungene Umwege"
 
         try:
