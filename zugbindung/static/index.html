@@ -208,6 +208,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 16px
         <details class="adv"><summary>Erweiterte Einstellungen</summary>
           <div class="grid">
             <div><label for="navp">Anschluss gilt als verpasst bei weniger als … Minuten Restzeit</label><input type="number" id="navp" value="3" min="0" max="15"></div>
+            <div class="mode-preis"><label for="knoten">Umwegketten erzwingen über … Knotenbahnhöfe</label>
+              <select id="knoten"><option value="0">keine (schneller)</option><option value="1">1</option><option value="2" selected>2 (empfohlen)</option><option value="3">3</option><option value="4">4 (gründlich, langsam)</option></select>
+              <div class="ac-hint">Nach der ersten Runde fragt die App bahn.de noch einmal ab, mit den Umstiegsbahnhöfen als Zwischenhalt, an denen Anschlüsse am häufigsten reißen. Das findet Ketten, die bahn.de sonst nicht anzeigt.</div></div>
             <div class="mode-ketten hidden"><label for="raster">Abfrage alle</label>
               <select id="raster"><option value="20">20 Minuten (gründlich)</option><option value="30" selected>30 Minuten</option><option value="60">60 Minuten (schnell)</option></select></div>
             <div class="mode-ketten hidden"><label for="minu">Kürzester erlaubter Umstieg (Minuten)</label><input type="number" id="minu" value="4" min="0" max="30"></div>
@@ -448,23 +451,32 @@ $$("#mode button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
 function renderEnds() {
   for (const k of ["starts", "ziele"]) {
     $("#" + k).innerHTML = state[k].map((x, i) => `<span class="chip ${x.on ? "" : "off"}" title="${x.on ? "wird gesucht, klicken zum Abwählen" : "abgewählt, klicken zum Auswählen"}">
-      <span class="nm" data-k="${k}" data-i="${i}">${x.on ? "✓ " : ""}${esc(x.name)}${x.km ? `<small>${x.km} km</small>` : ""}</span>
+      <span class="nm" data-k="${k}" data-i="${i}" title="${esc(x.warn || (x.ueber ? "mit Umstieg in " + x.ueber : ""))}">${x.warn ? "⚠ " : x.on ? "✓ " : ""}${esc(x.name)}${x.km ? `<small>${x.km} km${x.ueber ? " · über " + esc(x.ueber) : ""}</small>` : ""}${x.warn ? `<small>${esc(x.warn)}</small>` : ""}</span>
       <button type="button" data-k="${k}" data-del="${i}" title="entfernen">×</button></span>`).join("")
       || `<span class="sub" style="margin:0;font-size:13px">keine; nur deine Strecke selbst wird gesucht</span>`;
   }
   $$(".chip .nm").forEach((el) => el.onclick = () => { const x = state[el.dataset.k][+el.dataset.i]; x.on = !x.on; renderEnds(); saveForm(); updateEstimate(); });
   $$(".chip [data-del]").forEach((b) => b.onclick = () => { state[b.dataset.k].splice(+b.dataset.del, 1); renderEnds(); saveForm(); updateEstimate(); });
 }
-function addEnd(k, name) {
+async function addEnd(k, name) {
   name = name.trim(); if (!name || state[k].some((x) => x.name === name)) return;
-  state[k].push({ name, on: true }); renderEnds(); saveForm(); updateEstimate();
+  const item = { name, on: true, manuell: true };
+  state[k].push(item); renderEnds(); saveForm(); updateEstimate();
+  if (!$("#von").value || !$("#nach").value) return;
+  try {   // Plausibilität gegen die Wunschstrecke prüfen
+    const q = new URLSearchParams({ von: $("#von").value, nach: $("#nach").value, name, art: k === "starts" ? "start" : "ziel" });
+    const r = await api("/api/plausibel?" + q);
+    if (r.km != null) item.km = r.km;
+    if (r.ok === false) { item.warn = r.grund; item.on = false; }
+    renderEnds(); saveForm(); updateEstimate();
+  } catch {}
 }
 $$("[data-add]").forEach((b) => b.onclick = () => { const inp = $(b.dataset.add === "starts" ? "#start-add" : "#ziel-add"); addEnd(b.dataset.add, inp.value); inp.value = ""; });
 ["#start-add", "#ziel-add"].forEach((sel) => $(sel).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $(sel).nextElementSibling.click(); } }));
 function applySuggestions(res) {
   for (const k of ["starts", "ziele"]) {
-    const manual = state[k].filter((x) => !x.km);
-    const sug = (res[k] || []).filter((x) => !manual.some((m) => m.name === x.name)).map((x, i) => ({ name: x.name, km: x.km, on: i < 2 }));
+    const manual = state[k].filter((x) => x.manuell);
+    const sug = (res[k] || []).filter((x) => !manual.some((m) => m.name === x.name)).map((x, i) => ({ name: x.name, km: x.km, ueber: x.ueber, on: i < 2 }));
     state[k] = [...manual, ...sug];
   }
   $("#vor-hint").textContent = `${res.starts.length} Starts und ${res.ziele.length} Ziele gefunden. Die ersten zwei sind ausgewählt; per Klick an- oder abwählen. Jede weitere Auswahl verlängert die Suche.`;
@@ -491,27 +503,29 @@ function updateEstimate() {
   if (state.mode === "preis") {
     const n = reiseTage().length, v = (1 + onEnds("starts").length) * (1 + onEnds("ziele").length);
     $("#dhint").textContent = n ? `${n} Reisetage × ${v} Ticket-Variante${v > 1 ? "n" : ""}` : "Zeitraum prüfen";
-    const lo = Math.max(1, Math.round(n * v * 12 / 60)), hi = Math.max(2, Math.round(n * v * 30 / 60));
-    $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v > 400 ? " Zu viele Abfragen: bitte weniger Bahnhöfe oder Tage." : "") : "";
+    const kn = +($("#knoten")?.value || 0), f = 1 + kn * 0.4;
+    const lo = Math.max(1, Math.round(n * v * f * 12 / 60)), hi = Math.max(2, Math.round(n * v * f * 30 / 60));
+    $("#dauer").textContent = n ? `Dauert etwa ${lo} bis ${hi} Minuten.` + (n * v * (1 + kn) > 900 ? " Zu viele Abfragen: bitte weniger Bahnhöfe, Knoten oder Tage." : "") : "";
   } else {
     $("#dauer").textContent = "Dauert etwa 3 bis 5 Minuten pro Reisetag.";
   }
 }
 ["#dvon", "#dbis"].forEach((sel) => $(sel).addEventListener("change", updateEstimate));
 $("#rwd").addEventListener("change", updateEstimate);
+$("#knoten").addEventListener("change", updateEstimate);
 
 // ---------------- Formular merken
 function saveForm() {
   store.set("form", { von: $("#von").value, nach: $("#nach").value, stops: state.stops, tage: state.tage, ab: $("#ab").value, bis: $("#bis").value,
     erm: $("#erm").value, raster: $("#raster").value, minu: $("#minu").value, navp: $("#navp").value,
     dvon: $("#dvon").value, dbis: $("#dbis").value, maxp: $("#maxp").value, rwd: $$("#rwd input:checked").map((c) => c.value),
-    starts: state.starts, ziele: state.ziele });
+    starts: state.starts, ziele: state.ziele, knoten: $("#knoten").value });
 }
 function loadForm() {
   const f = store.get("form", null);
   const today = new Date().toISOString().slice(0, 10);
   if (f) {
-    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
+    ["von", "nach", "ab", "bis", "erm", "raster", "minu", "navp", "dvon", "dbis", "maxp", "knoten"].forEach((k) => { if (f[k] != null) $("#" + k).value = f[k]; });
     $$("#rwd input").forEach((c) => c.checked = (f.rwd || []).includes(c.value));
     state.starts = f.starts || []; state.ziele = f.ziele || [];
     state.stops = f.stops || state.stops;
@@ -539,7 +553,7 @@ $("#f-suche").onsubmit = async (e) => {
     const body = { von: $("#von").value, nach: $("#nach").value, von_id: idFor("von", "bahnde"), nach_id: idFor("nach", "bahnde"),
       datum_von: $("#dvon").value, datum_bis: $("#dbis").value, wochentage: $$("#rwd input:checked").map((c) => +c.value),
       ab: $("#ab").value, bis: $("#bis").value, max_preis: $("#maxp").value, ermaessigung: $("#erm").value, navigator_puffer: $("#navp").value,
-      starts: onEnds("starts"), ziele: onEnds("ziele") };
+      starts: onEnds("starts"), ziele: onEnds("ziele"), knoten: $("#knoten").value };
     $("#r-suche").innerHTML = "";
     try { const { job } = await api("/api/bestetage", body); follow(job, $("#p-suche"), "bestetage"); }
     catch (err) { const b = $("#p-suche"); b.classList.remove("hidden"); b.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
@@ -593,7 +607,7 @@ function card(r, i) {
     <div class="score ${scoreClass(r.p_navigator)}"><b>${pct(r.p_navigator)}</b><small>streng ${pct(r.p_streng)}</small><small>${r.tage_navigator[0]}/${r.tage_navigator[1]} Tage</small></div>
     <div>
       ${r.titel ? `<div class="meta" style="margin-bottom:2px">${esc(r.titel)}</div>` : ""}
-      ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}</div>` : ""}
+      ${r.ticket_von ? `<div class="ticket">Ticket ${esc(r.ticket_von)} → ${esc(r.ticket_nach)}${r.ueber ? ` · gefunden mit Zwischenhalt ${esc(r.ueber)}` : ""}</div>` : ""}
       <div class="meta">${r.preis != null ? `<span class="price">${r.preis.toFixed(2).replace(".", ",")} €</span> ` : ""}${dm(r.ab)} ${hm(r.ab)} → ${r.an.slice(0, 10) !== r.ab.slice(0, 10) ? dm(r.an) + " " : ""}${hm(r.an)} <span>· ${dur(r.dauer_min)} · ${r.umstiege} Umstiege</span></div>
       <div class="chain">${chain}</div>
       <div class="risks">${risks}</div>

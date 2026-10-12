@@ -117,16 +117,25 @@ class History:
         return self._stations
 
     def station_by_name(self, name: str) -> tuple[str, str] | None:
-        """Bahnhofsname (beliebige Schreibweise) -> (EVA, DB-Name), oder None."""
-        city = (re.findall(r"[^\W\d_]+", name.lower()) or [""])[0]
-        best = None
-        for eva, st in self.stations().items():
-            if not st.lower().startswith(city):
-                continue
-            sim = name_similarity(st, name)
-            if best is None or sim > best[0]:
-                best = (sim, eva, st)
-        return (best[1], best[2]) if best and best[0] >= 0.5 else None
+        """Bahnhofsname (beliebige Schreibweise) -> (EVA, DB-Name), oder None.
+        Ein reiner Stadtname wie "BERLIN" (so liefert bahn.de Sammelhalte)
+        wird zum Hauptbahnhof dieser Stadt."""
+        def simple(x):
+            x = x.lower().replace("hauptbahnhof", "hbf")
+            return " ".join(re.sub(r"[(),]", " ", x).split())
+
+        q = simple(name)
+        city = (re.findall(r"[^\W\d_]+", q) or [""])[0]
+        same = [(eva, st) for eva, st in self.stations().items() if st.lower().startswith(city)]
+        if not same:
+            return None
+        if q == city:   # nur der Stadtname: Hauptbahnhof bevorzugen
+            hbf = [x for x in same if re.search(r"\b(hbf|hauptbahnhof)\b", x[1].lower())]
+            pool = hbf or same
+            return min(pool, key=lambda x: len(x[1]))
+        best = max(same, key=lambda x: difflib.SequenceMatcher(None, simple(x[1]), q).ratio())
+        sim = difflib.SequenceMatcher(None, simple(best[1]), q).ratio()
+        return best if sim >= 0.5 else None
 
     def evas_named(self, name: str) -> list[str]:
         """Alle EVA-Nummern mit genau diesem Bahnhofsnamen (Berlin Hbf hat z. B.

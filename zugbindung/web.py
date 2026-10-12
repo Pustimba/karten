@@ -188,20 +188,23 @@ class App:
             ermaessigung=params.get("ermaessigung") or "bc25",
             navigator_puffer=int(params.get("navigator_puffer") if params.get("navigator_puffer") not in (None, "") else 3),
             von_id=params.get("von_id") or "", nach_id=params.get("nach_id") or "",
-            starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x])
+            starts=[x for x in params.get("starts") or [] if x], ziele=[x for x in params.get("ziele") or [] if x],
+            knoten=int(params.get("knoten") if params.get("knoten") not in (None, "") else 2))
         dates = service.travel_dates(p)
         if not dates:
             raise RuntimeError("Im gewählten Zeitraum liegt kein passender Reisetag.")
         if len(dates) > 62:
             raise RuntimeError("Bitte höchstens 62 Reisetage auf einmal abfragen.")
-        job.total, job.phase = len(dates), "bahn.de abfragen"
+        job.total, job.phase = len(dates) * (2 if p.knoten else 1), "bahn.de abfragen"
         pairs = (1 + len(p.starts)) * (1 + len(p.ziele))
-        if pairs * len(dates) > 400:
+        if pairs * len(dates) * (1 + p.knoten) > 900:
             raise RuntimeError(f"{pairs} Ticket-Varianten × {len(dates)} Tage sind zu viele Abfragen. "
                                "Bitte weniger Bahnhöfe oder einen kürzeren Zeitraum wählen.")
 
         def day_done(d, n):
             job.done += 1
+            if job.done > len(dates):
+                job.phase = "Runde 2: erzwungene Umwege"
 
         try:
             return service.best_days(h, p, progress=job.say, day_done=day_done)
@@ -286,6 +289,15 @@ def make_handler(app: App):
                             return self._json({"fehler": str(e)}, 502)
                     from . import transitous
                     return self._json(transitous.candidates(q))
+                if url.path == "/api/plausibel":
+                    from . import service
+                    qs = parse_qs(url.query)
+                    g = lambda k: (qs.get(k) or [""])[0]
+                    try:
+                        return self._json(service.check_endpoint(app.history(), g("von"), g("nach"), g("name"),
+                                                                 g("art") == "start"))
+                    except Exception as e:
+                        return self._json({"ok": None, "grund": str(e)})
                 if url.path.startswith("/api/job/"):
                     job = app.jobs.get(url.path.rsplit("/", 1)[-1])
                     return self._json(job.to_dict() if job else {"fehler": "unbekannter Job"}, 200 if job else 404)

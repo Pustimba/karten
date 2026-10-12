@@ -220,6 +220,8 @@ class BestDaysParams:
     nach_id: str = ""
     starts: list[str] = field(default_factory=list)   # Ticket darf hier früher beginnen
     ziele: list[str] = field(default_factory=list)    # Ticket darf hier später enden
+    knoten: int = 2                 # so viele Knotenbahnhöfe als Zwischenhalt erzwingen (0 = aus)
+    knoten_seiten: int = 4          # Ergebnisseiten je erzwungenem Zwischenhalt
 
 
 def _resolve(client, text: str, given_id: str) -> dict:
@@ -245,120 +247,233 @@ def travel_dates(p: BestDaysParams) -> list[date]:
     return out
 
 
-def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: int = 8,
-                      umweg: float = 1.3, max_winkel: float = 75) -> dict:
-    """Bahnhöfe vor dem Wunsch-Start und hinter dem Wunsch-Ziel, über die ein
-    Ticket laufen kann, das die Wunschstrecke einschließt.
+def _city(n: str) -> str:
+    # "Frankfurt (Main) Hbf" -> "frankfurt(main)", "Berlin-Spandau" -> "berlin"
+    m = re.match(r"^([^\W\d_]+)(\s*\([^)]*\))?", n.strip())
+    return re.sub(r"\s+", "", m.group(0)).lower() if m else n.lower()
 
-    Kandidaten sind Bahnhöfe mit direkten Zügen zum Start (bzw. vom Ziel) aus
-    den Verspätungsdaten. Sie bleiben nur, wenn der Umweg klein ist: der Weg
-    Kandidat → Start → Ziel darf höchstens 30 % (umweg) länger sein als die Luftlinie
-    Kandidat → Ziel (für Ziele entsprechend), und die Richtung muss passen: der
-    Weg Kandidat → Start darf höchstens max_winkel Grad von der Richtung
-    Start → Ziel abweichen (für Ziele entsprechend)."""
-    from . import geo
-    s_hit, e_hit = h.station_by_name(von), h.station_by_name(nach)
-    if not s_hit or not e_hit:
-        raise RuntimeError(f"'{von if not s_hit else nach}' nicht in den Verspätungsdaten gefunden.")
-    s_name, e_name = s_hit[1], e_hit[1]
-    progress(f"Wunschstrecke: {s_name} → {e_name}")
-    cs, ce = geo.coords(s_name), geo.coords(e_name)
-    if not cs or not ce:
-        raise RuntimeError("Koordinaten für die Wunschstrecke nicht gefunden.")
-    d_se = geo.km(cs, ce)
 
-    def city(n):
-        # "Frankfurt (Main) Hbf" -> "frankfurt(main)", "Berlin-Spandau" -> "berlin"
-        m = re.match(r"^([^\W\d_]+)(\s*\([^)]*\))?", n.strip())
-        return re.sub(r"\s+", "", m.group(0)).lower() if m else n.lower()
+class Corridor:
+    """Geometrie der Wunschstrecke S → E und Plausibilität von Ticket-Enden.
 
-    skip = {city(s_name), city(e_name)}
+    Ein Ticket-Start X ist plausibel, wenn der Weg X → S → E höchstens `umweg`
+    (30 %) länger ist als die Luftlinie X → E und die Richtung X → S höchstens
+    `max_winkel` Grad von S → E abweicht. Für ein Ticket-Ziel Y entsprechend
+    mit S → E → Y."""
 
-    def pick(cands, before: bool):
-        out, looked = [], 0
-        # häufig angefahren und weiter weg zuerst: Endpunkte von Regionallinien
-        # (Cottbus, Frankfurt (Oder)) vor deren nahen Zwischenhalten
-        cands = sorted(cands, key=lambda c: -c[2] * min(c[3], 60))
-        for eva, name, rides, mins in cands:
-            if city(name) in skip or looked >= 45:
-                continue
-            looked += 1
-            c = geo.coords(name)
-            if not c:
-                continue
-            if before:   # Kandidat X vor dem Start S: X → S soll Richtung Ziel zeigen
-                d_near, d_far = geo.km(c, cs), geo.km(c, ce)
-                ang = geo.angle(c, cs, cs, ce)
-            else:        # Kandidat Y hinter dem Ziel E: E → Y soll die Fahrtrichtung fortsetzen
-                d_near, d_far = geo.km(c, ce), geo.km(c, cs)
-                ang = geo.angle(cs, ce, ce, c)
-            if d_near < 15 or d_near > 160 or d_far <= d_se or (d_near + d_se) / d_far > umweg or ang > max_winkel:
-                continue
-            if d_near > 10 + mins * 3.5:   # schneller als 210 km/h: falscher Ort gleichen Namens
-                continue
-            if any(geo.km(c, o["_c"]) < 12 for o in out):   # Nachbarorte zusammenfassen
-                continue
-            out.append({"name": name, "km": round(d_near), "minuten": round(mins), "fahrten": rides,
-                        "winkel": round(ang), "_c": c})
-            if len(out) >= limit:
-                break
-        for o in out:
-            o.pop("_c")
+    def __init__(self, h: History, von: str, nach: str, umweg: float = 1.3, max_winkel: float = 75):
+        from . import geo
+        self.geo = geo
+        s_hit, e_hit = h.station_by_name(von), h.station_by_name(nach)
+        if not s_hit or not e_hit:
+            raise RuntimeError(f"'{von if not s_hit else nach}' nicht in den Verspätungsdaten gefunden.")
+        self.s_name, self.e_name = s_hit[1], e_hit[1]
+        self.cs, self.ce = geo.coords(self.s_name), geo.coords(self.e_name)
+        if not self.cs or not self.ce:
+            raise RuntimeError("Koordinaten für die Wunschstrecke nicht gefunden.")
+        self.d_se = geo.km(self.cs, self.ce)
+        self.umweg, self.max_winkel = umweg, max_winkel
+        self.skip = {_city(self.s_name), _city(self.e_name)}
+
+    def check(self, name: str, before: bool, minutes: float | None = None) -> dict:
+        """Plausibilität eines Ticket-Starts (before=True) oder -Ziels."""
+        geo = self.geo
+        c = geo.coords(name)
+        if not c:
+            return {"ok": False, "grund": "Ort nicht gefunden"}
+        if before:
+            d_near, d_far = geo.km(c, self.cs), geo.km(c, self.ce)
+            ang = geo.angle(c, self.cs, self.cs, self.ce)
+        else:
+            d_near, d_far = geo.km(c, self.ce), geo.km(c, self.cs)
+            ang = geo.angle(self.cs, self.ce, self.ce, c)
+        ratio = (d_near + self.d_se) / d_far if d_far else 9
+        out = {"km": round(d_near), "umweg": round((ratio - 1) * 100), "winkel": round(ang), "_c": c}
+        if d_far <= self.d_se or ratio > self.umweg:
+            out.update(ok=False, grund=f"{out['umweg']} % Umweg" if d_far > self.d_se else "liegt auf der falschen Seite")
+        elif ang > self.max_winkel:
+            out.update(ok=False, grund=f"falsche Richtung ({out['winkel']}°)")
+        elif minutes is not None and d_near > 10 + minutes * 3.5:
+            out.update(ok=False, grund="Ortsname mehrdeutig")
+        else:
+            out.update(ok=True, grund="")
         return out
 
-    # alle Bahnhöfe der Wunschstädte als Knoten: einzelne Bahnsteige (etwa
-    # Berlin Hbf oben) fehlen in den Daten teilweise
+
+def suggest_endpoints(h: History, von: str, nach: str, progress=_print, limit: int = 10,
+                      umweg: float = 1.3, max_winkel: float = 75) -> dict:
+    """Bahnhöfe vor dem Wunsch-Start und hinter dem Wunsch-Ziel, über die ein
+    Ticket laufen kann, das die Wunschstrecke plausibel einschließt.
+
+    Stufe 1: Bahnhöfe mit direkten Regional- oder Fernzügen zum Start (bzw.
+    vom Ziel). Stufe 2: Bahnhöfe, die mit einem Umstieg an einem Bahnhof aus
+    Stufe 1 angebunden sind (z. B. Forst über Cottbus). Alle müssen die
+    Plausibilitätsprüfung von Corridor bestehen."""
+    cor = Corridor(h, von, nach, umweg, max_winkel)
+    progress(f"Wunschstrecke: {cor.s_name} → {cor.e_name}")
     st = h.stations()
-    s_evas = [e for e, n in st.items() if city(n) == city(s_name)]
-    e_evas = [e for e, n in st.items() if city(n) == city(e_name)]
-    progress("Suche Zubringer vor dem Start …")
-    before = pick(h.connected(s_evas, True, 15, 180), True)
+
+    def evas_of_city(name):
+        # alle Bahnhöfe einer Stadt als Knoten: einzelne Bahnsteige (etwa
+        # Berlin Hbf oben) fehlen in den Daten teilweise
+        return [e for e, n in st.items() if _city(n) == _city(name)]
+
+    def pick(cands, before: bool, via: str = "", base_minutes: float = 0, budget: int = 45, via_km: int = 0):
+        out, looked = [], 0
+        # häufig angefahren und weiter weg zuerst: Endpunkte von Regionallinien
+        # vor deren nahen Zwischenhalten
+        for eva, name, rides, mins in sorted(cands, key=lambda c: -c[2] * min(c[3], 60)):
+            if _city(name) in cor.skip or looked >= budget:
+                continue
+            looked += 1
+            total = base_minutes + mins + (10 if via else 0)
+            r = cor.check(name, before, minutes=total)
+            if not r.get("ok") or r["km"] < 15 or r["km"] > 180 or (via and r["km"] < via_km + 10):
+                continue   # mit Umstieg nur, wenn der Ort weiter weg liegt als sein Knoten
+            out.append({"name": name, "km": r["km"], "minuten": round(total), "fahrten": rides,
+                        "umweg": r["umweg"], "winkel": r["winkel"], "ueber": via, "_c": r["_c"]})
+        return out
+
+    def level(before: bool):
+        hub = cor.s_name if before else cor.e_name
+        lo, hi = (15, 180) if before else (10, 150)
+        first = pick(h.connected(evas_of_city(hub), before, lo, hi), before)
+        second = []
+        # Stufe 2 über die am besten angebundenen Knoten aus Stufe 1
+        for k in sorted(first, key=lambda x: -x["fahrten"])[:4]:
+            progress(f"… Anschlüsse über {k['name']}")
+            cands = h.connected(h.evas_named(k["name"]), before, 15, 120, min_rides=3)
+            cands = [c for c in cands if c[1] != hub]
+            second += pick(cands, before, via=k["name"], base_minutes=k["minuten"], budget=20, via_km=k["km"])
+        merged, seen = [], []
+        for x in sorted(first, key=lambda x: -x["fahrten"] * min(x["minuten"], 90)) + \
+                 sorted(second, key=lambda x: -x["fahrten"] * min(x["minuten"], 120)):
+            if x["minuten"] > 240 or any(cor.geo.km(x["_c"], o) < 12 for o in seen):
+                continue   # Nachbarorte zusammenfassen
+            seen.append(x["_c"])
+            merged.append(x)
+        # direkt angebundene und mit Umstieg abwechselnd, damit beide sichtbar sind
+        d = [x for x in merged if not x["ueber"]]
+        u = [x for x in merged if x["ueber"]]
+        out = []
+        while (d or u) and len(out) < limit:
+            if d:
+                out.append(d.pop(0))
+            if u and len(out) < limit:
+                out.append(u.pop(0))
+        for x in out:
+            x.pop("_c")
+        return out
+
+    progress("Suche Bahnhöfe vor dem Start …")
+    before = level(True)
     progress(f"{len(before)} mögliche Ticket-Starts. Suche Bahnhöfe hinter dem Ziel …")
-    after = pick(h.connected(e_evas, False, 10, 150), False)
+    after = level(False)
     progress(f"{len(after)} mögliche Ticket-Ziele.")
-    return {"von": s_name, "nach": e_name, "km": round(d_se), "starts": before, "ziele": after}
+    return {"von": cor.s_name, "nach": cor.e_name, "km": round(cor.d_se), "starts": before, "ziele": after}
+
+
+def check_endpoint(h: History, von: str, nach: str, name: str, before: bool) -> dict:
+    """Plausibilität eines selbst eingetragenen Ticket-Starts oder -Ziels."""
+    r = Corridor(h, von, nach).check(name, before)
+    r.pop("_c", None)
+    return r
 
 
 def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d, n: None) -> dict:
     """Fragt bahn.de für jede Kombination aus Ticket-Start und Ticket-Ziel und
     jeden Reisetag ab ("Schnelle Verbindungen" aus), behält Verbindungen bis
     max_preis und bewertet sie. Der Wunsch-Start und das Wunsch-Ziel gehören
-    immer mit zu den Kombinationen."""
+    immer mit zu den Kombinationen.
+
+    Runde 2 (p.knoten > 0): Aus den Ketten der ersten Runde werden die
+    Umstiegsbahnhöfe gewählt, an denen Anschlüsse am häufigsten reißen. Für
+    diese Knoten fragt die App bahn.de erneut ab, mit dem Knoten als
+    Zwischenhalt. So erscheinen Umwegketten, die bahn.de sonst ausblendet."""
     client = bahnde.Client()
     wunsch_von = _resolve(client, p.von, p.von_id)
     wunsch_nach = _resolve(client, p.nach, p.nach_id)
     starts = [wunsch_von] + [_resolve(client, n, "") for n in p.starts if n.strip()]
     ziele = [wunsch_nach] + [_resolve(client, n, "") for n in p.ziele if n.strip()]
     pairs = [(a, b) for a in starts for b in ziele]
+    dates = travel_dates(p)
     progress(f"Wunschstrecke {wunsch_von['name']} → {wunsch_nach['name']}, {len(pairs)} Ticket-Varianten")
     days_hist = h.days()
     found: dict[tuple, dict] = {}
     per_day: dict[str, dict] = {}
-    for d in travel_dates(p):
+
+    def run(d, a, b, via=None, pages=None):
+        n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found, via=via, max_pages=pages)
+        t = per_day.setdefault(d.isoformat(), {"datum": d.isoformat(), "verbindungen": 0, "bis_max_preis": 0,
+                                               "guenstigster": None})
+        t["verbindungen"] += n_all
+        t["bis_max_preis"] += n_cheap
+        if cheapest is not None and (t["guenstigster"] is None or cheapest < t["guenstigster"]):
+            t["guenstigster"] = cheapest
+        msg = (f"{WD_NAMES[d.weekday()]} {d:%d.%m.} {a['name']} → {b['name']}"
+               + (f" über {via['name']}" if via else "") + f": {n_all} Verbindungen, {n_cheap} bis {eur(p.max_preis)}")
+        progress(msg + (f", günstigste {eur(cheapest)}" if cheapest is not None else ""))
+
+    for d in dates:
         for a, b in pairs:
-            n_all, n_cheap, cheapest = _scan(client, h, p, a, b, d, days_hist, found)
-            t = per_day.setdefault(d.isoformat(), {"datum": d.isoformat(), "verbindungen": 0, "bis_max_preis": 0,
-                                                   "guenstigster": None})
-            t["verbindungen"] += n_all
-            t["bis_max_preis"] += n_cheap
-            if cheapest is not None and (t["guenstigster"] is None or cheapest < t["guenstigster"]):
-                t["guenstigster"] = cheapest
-            msg = (f"{WD_NAMES[d.weekday()]} {d:%d.%m.} {a['name']} → {b['name']}: {n_all} Verbindungen, "
-                   f"{n_cheap} bis {eur(p.max_preis)}")
-            progress(msg + (f", günstigste {eur(cheapest)}" if cheapest is not None else ""))
+            run(d, a, b)
         day_done(d, per_day[d.isoformat()]["bis_max_preis"])
+
+    if p.knoten > 0 and found:
+        hubs = _pick_hubs(found.values(), p.knoten, exclude={_city(x["name"]) for x in starts + ziele})
+        progress("Runde 2, erzwungene Zwischenhalte: " + (", ".join(f"{n} ({pct:.0%} verpasst)" for n, pct in hubs) or "keine"))
+        vias = []
+        for name, _ in hubs:
+            try:
+                hit = client.locations(name)
+            except bahnde.Blocked:
+                raise
+            if hit:
+                vias.append(hit[0])
+        for d in dates:
+            for a, b in pairs:
+                for via in vias:
+                    run(d, a, b, via=via, pages=p.knoten_seiten)
+            day_done(d, 0)
+
     results = sorted(found.values(), key=lambda r: (-r["p_navigator"], r["preis"], r["ab"]))
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
             "ergebnisse": results, "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
             "max_preis": p.max_preis, "varianten": [f"{a['name']} → {b['name']}" for a, b in pairs]}
 
 
-def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days_hist, found: dict):
-    """Eine Ticket-Variante a → b an einem Tag durchblättern."""
+def _pick_hubs(results, k: int, exclude: set[str]) -> list[tuple[str, float]]:
+    """Umstiegsbahnhöfe aus gefundenen Ketten, an denen Anschlüsse am
+    häufigsten reißen (gewichtet mit der Häufigkeit des Bahnhofs).
+    exclude: Städte (wie _city sie schreibt), deren Bahnhöfe nicht taugen."""
+    import math
+    stats: dict[str, list[float]] = {}
+    for r in results:
+        for c in r["risiken"]:
+            m = re.match(r"Anschluss (.+) \((-?\d+) min\)$", c["teil"])
+            if m and c["anteil"] is not None and c["tage"] >= 5:
+                stats.setdefault(m.group(1), []).append(c["anteil"])
+    ranked = []
+    for name, ps in stats.items():
+        # Knoten in der Start- oder Zielstadt erzwingen keinen Umweg
+        flat = re.sub(r"\s+", "", name.lower())
+        if _city(re.sub(r"^S\+?U? ", "", name)) in exclude or any(c in flat for c in exclude):
+            continue
+        mean = sum(ps) / len(ps)
+        ranked.append((mean * math.log(1 + len(ps)), name, mean))
+    ranked.sort(reverse=True)
+    return [(name, mean) for _, name, mean in ranked[:k]]
+
+
+def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days_hist, found: dict,
+          via: dict | None = None, max_pages: int | None = None):
+    """Eine Ticket-Variante a → b an einem Tag durchblättern, optional mit
+    erzwungenem Zwischenhalt."""
     when = f"{d.isoformat()}T{p.ab}:00"
     paging, pages, n_all, n_cheap, cheapest = None, 0, 0, 0, None
-    while pages < p.max_seiten:
-        data = client.journeys(a["id"], b["id"], when, p.ermaessigung, paging=paging)
+    while pages < (max_pages or p.max_seiten):
+        data = client.journeys(a["id"], b["id"], when, p.ermaessigung, paging=paging,
+                               vias=[via["id"]] if via else ())
         pages += 1
         vs = data.get("verbindungen") or []
         last_dep = None
@@ -369,6 +484,9 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
                 continue
             last_dep = trains[0].dep
             if trains[0].dep.date() != d or trains[0].dep.strftime("%H:%M") > p.bis:
+                continue
+            # FlixTrain und andere Nicht-DB-Züge: mit einem DB-Sparpreis nicht nutzbar
+            if any(EXCLUDE.search(f"{l.name} {l.operator}") for l in trains):
                 continue
             n_all += 1
             price = bahnde.price_of(v)
@@ -386,7 +504,9 @@ def _scan(client, h: History, p: BestDaysParams, a: dict, b: dict, d: date, days
             nav = score(legs, h, days_hist, navigator_buffer=p.navigator_puffer)
             strict = score(legs, h, days_hist, navigator_buffer=0)
             r = result_dict(h, nav, strict, p.ermaessigung)
-            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"])
+            r.update(preis=price, ticket_von=a["name"], ticket_nach=b["name"], ueber=via["name"] if via else "")
+            if via and via["name"] not in r["zwischenhalte"]:
+                r["zwischenhalte"] = [via["name"]] + r["zwischenhalte"][:1]
             found[key] = r
         paging = (data.get("verbindungReference") or {}).get("later")
         if not vs or not paging or (last_dep and (last_dep.date() > d or last_dep.strftime("%H:%M") > p.bis)):
