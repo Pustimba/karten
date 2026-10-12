@@ -129,7 +129,7 @@ Laut DB-FAQ ["Zugbindung aufgehoben"](https://www.bahn.de/faq/zugbindung-aufgeho
 | **Zugausfall** | ja |
 | **Haltausfall** | ja (Ausfall am Ein- oder Ausstiegshalt) |
 | **verpasster Anschlusszug** | ja |
-| **Fahrplanänderung mit verfrühter Abfahrt** | aus Echtzeitdaten unmöglich zu messen, siehe [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026) |
+| **Fahrplanänderung mit verfrühter Abfahrt**, z. B. wenn die Bahn wegen einer Baustelle eine Ersatzverbindung vorschlägt, die früher beginnt | aus Echtzeitdaten unmöglich zu messen; die geplanten Baustellen in der App zielen genau darauf, siehe [Abschnitt 10](#10-strategie-und-erkenntnisse-stand-oktober-2026) |
 
 Danach gilt laut derselben FAQ:
 
