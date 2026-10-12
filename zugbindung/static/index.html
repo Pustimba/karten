@@ -689,6 +689,7 @@ function card(r, i) {
       <details class="more"><summary>Alle Details</summary>
         <table><tr><th>Zug</th><th>Ab</th><th>An</th></tr>${legRows}</table>
         <table><tr><th>Risiko</th><th class="num">Anteil</th><th class="num">Daten</th></tr>${riskRows}</table>
+        ${r.ersatz?.length ? `<div class="sub" style="font-size:12px;margin-top:6px" title="Diesen Zug gibt es in den Verspätungsdaten noch nicht, etwa wegen einer neuen Nummer nach dem Fahrplanwechsel. Die App nimmt den bisherigen Zug, der auf derselben Strecke zur ähnlichen Zeit fuhr.">Ersatz: ${esc(r.ersatz.join("; "))}</div>` : ""}
         ${r.ohne_daten?.length ? `<div class="sub" style="font-size:12px;margin-top:6px">Ohne ausreichende Daten (zählen nicht mit): ${esc(r.ohne_daten.join("; "))}</div>` : ""}
       </details>
     </div></div>`;

@@ -168,6 +168,7 @@ def result_dict(h: History, nav: Result, strict: Result, ermaessigung: str = "bc
                   "an": l.arr.isoformat(), "fussweg": l.walk, "fern": l.long_distance()} for l in nav.legs],
         "risiken": [{"teil": c.label, "anteil": c.p, "tage": c.n} for c in nav.components],
         "ohne_daten": nav.unbekannt,
+        "ersatz": nav.ersatz,
         "zwischenhalte": via_suggestions(h, nav),
         "bahn_link": link or bahn_url(h, nav, ermaessigung),
     }

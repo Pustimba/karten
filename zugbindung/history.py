@@ -88,6 +88,43 @@ class History:
         self._stop_cache[key] = result
         return result
 
+    def proxy_train(self, from_eva: str, to_eva: str, dep: datetime, arr: datetime, kind: str = "",
+                    dep_tol: int = 20, arr_tol: int = 30) -> tuple[str, str, str] | None:
+        """Ersatz für einen Zug, den es in den Daten nicht gibt (z. B. neue
+        Nummer nach dem Fahrplanwechsel): der bisherige Zug, der zur ähnlichen
+        Zeit von from_eva abfuhr und danach zur ähnlichen Zeit in to_eva ankam.
+        Gleiche Gattung (ICE, RE, ...) wird bevorzugt, dann der Zug mit den
+        meisten Tagen und der kleinsten Zeitabweichung.
+        Ergebnis: (Zugnummer, EVA Abfahrt, EVA Ankunft) oder None."""
+        key = ("proxy", from_eva, to_eva, dep.strftime("%H:%M"), arr.strftime("%H:%M"), kind)
+        if key in self._stop_cache:
+            return self._stop_cache[key]
+        tod = lambda col: (f"least(abs(date_diff('minute', CAST({col} AS TIME), CAST(? AS TIME))),"
+                           f" 1440 - abs(date_diff('minute', CAST({col} AS TIME), CAST(? AS TIME))))")
+        t0, t1 = dep.strftime("%H:%M:00"), arr.strftime("%H:%M:00")
+        # alle Nummern desselben Bahnhofs (Berlin Hbf: oben und tief getrennt)
+        st = self.stations()
+        fe = self.evas_named(st.get(from_eva, "")) or [from_eva]
+        te = self.evas_named(st.get(to_eva, "")) or [to_eva]
+        hours = max(1, int((arr - dep).total_seconds() // 3600) + 3)
+        row = self.con.execute(f"""
+            WITH d AS (SELECT train_no, train_type, eva, departure_planned_time AS t, {tod('departure_planned_time')} AS dd
+                       FROM delays WHERE eva IN ({",".join("?" * len(fe))}) AND departure_planned_time IS NOT NULL
+                         AND {tod('departure_planned_time')} <= ?),
+                 a AS (SELECT train_no, eva, arrival_planned_time AS t, {tod('arrival_planned_time')} AS ad
+                       FROM delays WHERE eva IN ({",".join("?" * len(te))}) AND arrival_planned_time IS NOT NULL
+                         AND {tod('arrival_planned_time')} <= ?)
+            SELECT d.train_no, any_value(d.train_type) = ? AS same_kind,
+                   count(DISTINCT CAST(d.t AS DATE)) AS n, avg(d.dd + a.ad) AS diff,
+                   mode(d.eva) AS from_eva, mode(a.eva) AS to_eva
+            FROM d JOIN a ON a.train_no = d.train_no AND a.t > d.t AND a.t < d.t + INTERVAL ({hours}) HOUR
+            GROUP BY d.train_no
+            ORDER BY same_kind DESC, n DESC, diff
+            LIMIT 1""", [t0, t0, *fe, t0, t0, dep_tol, t1, t1, *te, t1, t1, arr_tol, kind]).fetchone()
+        result = (row[0], row[4], row[5]) if row and row[2] >= 5 else None
+        self._stop_cache[key] = result
+        return result
+
     def series(self, train_no: str, eva: str, kind: str, when: datetime) -> dict[date, tuple[int, bool]]:
         """Tag -> (Verspätung in Minuten, ausgefallen) für einen Zug an einem Halt.
         Pro Kalendertag zählt die Fahrt, deren Sollzeit der gesuchten am nächsten liegt."""

@@ -48,6 +48,7 @@ class Result:
     tage_mit: int = 0
     tage: int = 0
     unbekannt: list[str] = field(default_factory=list)
+    ersatz: list[str] = field(default_factory=list)   # Züge, für die ein ähnlicher bisheriger Zug einspringt
 
     @property
     def p_kombiniert(self) -> float:
@@ -89,6 +90,19 @@ class _TrainLeg:
         self.arr_off = (leg.arr.date() - start_day).days
         a = hist.find_stop(leg.num, leg.line, "arrival", leg.arr, leg.to_name, leg.to_eva)
         d = hist.find_stop(leg.num, leg.line, "departure", leg.dep, leg.from_name, leg.from_eva)
+        self.proxy = ""
+        self._load(hist, a, d)
+        if not self.arr and not self.dep and leg.from_eva and leg.to_eva:
+            # neuer Zug oder neue Zeiten (z. B. nach dem Fahrplanwechsel): den
+            # bisherigen Zug auf derselben Strecke zur ähnlichen Zeit nehmen
+            kind = (leg.name.split() or [""])[0].upper()
+            p = hist.proxy_train(leg.from_eva, leg.to_eva, leg.dep, leg.arr, kind)
+            if p and p[0] != (a or d or ("",))[0]:
+                self.proxy = p[0]
+                self._load(hist, (p[0], p[2]), (p[0], p[1]))
+
+    def _load(self, hist: History, a, d):
+        leg = self.leg
         self.to_eva = a[1] if a else ""
         self.from_eva = d[1] if d else ""
         self.arr = drop_planned_blocks(hist.series(a[0], a[1], "arrival", leg.arr)) if a else {}
@@ -149,7 +163,9 @@ def score(legs: list[Leg], hist: History, days: list[date], navigator_buffer: in
     comps.append(Component(f">= {TARGET_DELAY} min am Ziel", ev))
 
     res = Result(legs=legs, components=comps, navigator_buffer=navigator_buffer,
-                 matched=[(t.from_eva, t.to_eva) for t in T])
+                 matched=[(t.from_eva, t.to_eva) for t in T],
+                 ersatz=[f"{t.leg.name}: Daten von Zug {t.proxy} (bisher gleiche Strecke, ähnliche Zeit)"
+                         for t in T if t.proxy])
     stay = 1.0
     for c in comps:
         if c.p is not None and c.n >= MIN_DAYS:

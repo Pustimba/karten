@@ -42,6 +42,8 @@ def detail(res: Result, nav: Result | None = None, title: str = "") -> str:
     out.append("Einzelrisiken (Anteil der Tage, Tage mit Daten):")
     for c in base.components:
         out.append(f"   {c.label:<55} {pct(c.p):>5}  ({c.n} Tage)")
+    for e in base.ersatz:
+        out.append("Ersatz: " + e)
     if base.unbekannt:
         out.append("Ohne ausreichende Daten (zählen nicht mit): " + "; ".join(base.unbekannt))
     return "\n".join(out)

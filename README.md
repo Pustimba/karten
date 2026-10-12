@@ -452,7 +452,7 @@ Danach liefert z. B. `http://localhost:8000/api/journeys?from=…&to=…&departu
 
 * **Kurzer Zeitraum:** 30 Tage Historie, je Zug oft nur 10 bis 28 Tage mit Daten. Ein Prozentwert von 80 % kann real auch 65 % oder 90 % sein.
 * **Jahreszeit:** Herbst und Winter haben meist mehr Verspätungen als der Spätsommer. Die Daten spiegeln die Wochen vor dem Bau der Datenbank.
-* **Fahrplan 2027:** Zugnummern und Zeiten ändern sich teilweise. Eine Bewertung mit `pruefe` für einen Tag im neuen Fahrplan findet dann eventuell keine Historie.
+* **Fahrplan 2027:** Die meisten Zugnummern bleiben beim Fahrplanwechsel gleich, Zeitverschiebungen bis 10 Minuten fängt die App ab. Findet sie einen Zug trotzdem nicht in den Daten (neue Nummer oder stark verschobene Zeiten), nimmt sie als **Ersatz** den bisherigen Zug, der zur ähnlichen Zeit (Abfahrt ±20, Ankunft ±30 Minuten) von denselben beiden Bahnhöfen fuhr, bevorzugt derselben Gattung. Auf der Karte steht dann „Ersatz: ICE … : Daten von Zug …“. Das ist eine gute Näherung, solange der neue Zug auf derselben Strecke fährt. Fährt er anders (z. B. wegen einer Umleitung), passt der Ersatz schlechter. Gibt es gar keinen ähnlichen Zug, steht die Teilstrecke unter „ohne ausreichende Daten“.
 * **Busse und Schienenersatzverkehr** haben in den DB-Daten meist keine Echtzeit und zählen nicht mit.
 * **Mindestumstiegszeiten** der DB sind je Bahnhof verschieden. Die Navigator-Variante nähert sie mit 3 Minuten an.
 * **Prognose oder Ist-Wert:** Die Zugbindung entfällt bei einer *voraussichtlichen* Verspätung. Das Tool rechnet mit den tatsächlichen Verspätungen. In der Praxis liegen beide nah beieinander.
