@@ -660,9 +660,23 @@ def best_days(h: History, p: BestDaysParams, progress=_print, day_done=lambda d,
         n = state["uebersprungen"]
         warnung.append(f"{n} {'Abfrage wurde' if n == 1 else 'Abfragen wurden'} übersprungen, weil bahn.de "
                        "nicht antwortete (Details im Protokoll).")
-    if not found and not state["abbruch"] and per_day and not any(t["bis_max_preis"] for t in per_day.values()):
-        warnung.append(f"An keinem Tag gab es eine passende Verbindung bis {eur(p.max_preis)}. Sparpreise sind "
-                       "kurz vor der Reise meist teurer; ein Zeitraum einige Wochen in der Zukunft lohnt sich eher.")
+    # Tage ohne Fahrplan (Fahrplanjahr noch nicht veröffentlicht) und Tage mit
+    # Fahrplan, aber ohne einen einzigen Preis (noch nicht im Vorverkauf)
+    leer = [t["datum"] for t in per_day.values() if not t["verbindungen"]]
+    ohne_preis = [t["datum"] for t in per_day.values() if t["verbindungen"] and t["guenstigster"] is None]
+    fmt = lambda ds: ", ".join(f"{d[8:10]}.{d[5:7]}." for d in sorted(ds))
+    if ohne_preis:
+        warnung.append(f"Für {fmt(ohne_preis)} zeigt bahn.de zwar Verbindungen, aber keinen einzigen Preis. Diese "
+                       "Tage sind noch nicht im Vorverkauf. Auf bahn.de nachsehen, bis zu welchem Tag schon Preise "
+                       "erscheinen, und die Suche später wiederholen.")
+    if leer:
+        warnung.append(f"Für {fmt(leer)} liefert bahn.de gar keine Verbindungen. Meist ist der Fahrplan für diese "
+                       "Tage noch nicht veröffentlicht (z. B. nach dem Fahrplanwechsel im Dezember).")
+    priced = [t for t in per_day.values() if t["guenstigster"] is not None]
+    if not found and not state["abbruch"] and priced and not any(t["bis_max_preis"] for t in priced):
+        warnung.append(f"An den Tagen mit Preisen gab es keine Verbindung bis {eur(p.max_preis)}. Andere Tage "
+                       "oder einen etwas höheren Höchstpreis versuchen; kurz vor der Reise sind die günstigen "
+                       "Sparpreise meist ausverkauft.")
     return {"von": wunsch_von["name"], "nach": wunsch_nach["name"], "tage": list(per_day.values()),
             "warnung": warnung,
             "ergebnisse": results, "daten_von": h.first_day.isoformat(), "daten_bis": h.last_day.isoformat(),
